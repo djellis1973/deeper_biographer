@@ -7,7 +7,7 @@ from openai import OpenAI
 
 # Replace this with your actual OpenAI API key
 # Get one at: https://platform.openai.com/api-keys
-API_KEY = "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"
+API_KEY = "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"
 
 client = OpenAI(api_key=API_KEY)
 
@@ -105,3 +105,4 @@ st.markdown(
     "</small>",
     unsafe_allow_html=True
 )
+
