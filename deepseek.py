@@ -78,18 +78,25 @@ st.markdown(f"""
     [data-testid="stAppViewContainer"] {{
         padding-top: 0.5rem !important;
     }}
+    
+    .ghostwriter-tag {{
+        font-size: 0.8rem;
+        color: #666;
+        font-style: italic;
+        margin-top: 0.5rem;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
 
-# Define the chapter structure with guidance text
+# Define the chapter structure with professional guidance text
 CHAPTERS = [
     {
         "id": 1,
         "title": "Childhood",
-        "guidance": "Welcome to the Childhood chapter—this is where your story begins! Think back to your early years with an open heart. Share memories as vividly as you can: sights, sounds, feelings, smells, and little moments that still stay with you. There's no right or wrong way—honest reflections make the best stories. Take your time; it's okay if some memories are joyful, others bittersweet. This section helps readers see the roots of who you became.",
+        "guidance": "Welcome to the Childhood chapter—this is where we lay the foundation of your story. Professional biographies thrive on specific, sensory-rich memories. I'm looking for the kind of details that transport readers: not just what happened, but how it felt, smelled, sounded. The 'insignificant' moments often reveal the most. Take your time—we're mining for gold here.",
         "questions": [
             "What is your earliest memory?",
             "Can you describe your family home growing up?",
@@ -104,7 +111,7 @@ CHAPTERS = [
     {
         "id": 2,
         "title": "Family & Relationships",
-        "guidance": "Now let's turn to Family & Relationships—the people who shaped so much of your world. These questions invite you to reflect on connections, traditions, joys, and even challenges. Be as open as feels right; writing with kindness and honesty (from your own perspective) brings depth and authenticity to your story. Share what matters most to you.",
+        "guidance": "Family stories are complex ecosystems. We're not seeking perfect narratives, but authentic ones. The richest material often lives in the tensions, the unsaid things, the small rituals. My job is to help you articulate what usually goes unspoken. Think in scenes rather than summaries.",
         "questions": [
             "How would you describe your relationship with your parents?",
             "Are there any family traditions you remember fondly?",
@@ -117,7 +124,7 @@ CHAPTERS = [
     {
         "id": 3,
         "title": "Education & Growing Up",
-        "guidance": "Here in Education & Growing Up, we're exploring your learning journey—from school days to any further steps you took. Think about what excited you, what challenged you, and the people or moments that made a difference. This part often reveals turning points and how you grew into yourself. Reflect freely—learning isn't just about qualifications; it's about discovery and growth.",
+        "guidance": "Education isn't just about schools—it's about how you learned to navigate the world. We're interested in the hidden curriculum: what you learned about yourself, about systems, about survival and growth. Think beyond grades to transformation.",
         "questions": [
             "What were your favourite subjects at school?",
             "Did you have any memorable teachers or mentors?",
@@ -129,6 +136,37 @@ CHAPTERS = [
         "completed": False
     }
 ]
+
+# Professional Ghostwriter Response Templates
+PROFESSIONAL_TEMPLATES = {
+    "scene_unpacking": {
+        "structure": [
+            "Acknowledge with purpose (1 sentence)",
+            "Sensory invitation",
+            "Character lens",
+            "Open-ended prompt"
+        ],
+        "example": "Kitchens often hold family history in their walls. Let's step into that space properly. What's the first smell that comes to mind? The feel of the worktop? And crucially—what version of yourself lived in that kitchen that doesn't exist elsewhere?"
+    },
+    "time_contrast": {
+        "structure": [
+            "Anchor in significance",
+            "Then/now bridge",
+            "Lost/found inquiry",
+            "Narrative positioning"
+        ],
+        "example": "Such moments often mark a boundary between who we were and who we become. Immediately after, what story did you tell yourself about what it meant? And now, with distance—what different understanding has emerged?"
+    },
+    "unspoken_rules": {
+        "structure": [
+            "Name the ecosystem",
+            "Invite revelation",
+            "Consequences inquiry",
+            "Personal navigation"
+        ],
+        "example": "Every household has its particular architecture of expectations. What was the most important rule that was never actually said aloud? And how did you learn to move within—or around—that structure?"
+    }
+}
 
 # Initialize database
 def init_db():
@@ -157,6 +195,7 @@ if "responses" not in st.session_state:
     st.session_state.chapter_conversations = {}  # {chapter_id: {question_text: conversation}}
     st.session_state.editing = None  # (chapter_id, question_text, message_index)
     st.session_state.edit_text = ""
+    st.session_state.ghostwriter_mode = True  # New: Professional mode toggle
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -287,12 +326,62 @@ def clear_all():
     except:
         pass
 
-# Dynamic system prompt
+# PROFESSIONAL GHOSTWRITER SYSTEM PROMPT
 def get_system_prompt():
     current_chapter = CHAPTERS[st.session_state.current_chapter]
     current_question = current_chapter["questions"][st.session_state.current_question]
     
-    return f"""You are a warm, professional biographer helping document a life story.
+    if st.session_state.ghostwriter_mode:
+        return f"""ROLE: You are a professional biographer and ghostwriter helping someone document their life story for a UK English-speaking audience.
+
+CURRENT CHAPTER: {current_chapter['title']}
+CURRENT QUESTION: "{current_question}"
+
+CORE PRINCIPLES:
+1. You are warm but purposeful—not fawning, not overly casual
+2. You think in narrative structure and concrete detail
+3. Your questions are designed to extract rich, publishable material
+4. You value specificity over generality, scenes over summaries
+5. You are comfortable with thoughtful pauses and depth
+
+TONE GUIDELINES:
+- Warm but professional, like an experienced journalist or established biographer
+- UK English: "worktop" not "countertop", "fortnight" not "two weeks", "quite" used judiciously
+- Avoid Americanisms and overly sentimental language
+- Not effusive, but genuinely engaged
+- Respectful persistence when responses need deepening
+
+CONVERSATION STRUCTURE:
+For each response from the user:
+1. ACKNOWLEDGE WITH PURPOSE (1 sentence): Not generic praise, but recognition of what's revealing
+2. PLANT A FOLLOW-UP SEED (1 sentence): Suggest why this matters for the narrative
+3. ASK ONE STRATEGIC QUESTION (1 question maximum): Choose based on what's needed
+
+QUESTION STRATEGIES BASED ON RESPONSE TYPE:
+- For surface-level responses: "Let's explore the texture of that. What sensory detail remains sharpest?"
+- For past events: "What did that mean then versus what it means now?"
+- For relationships: "What was understood but never said?"
+- For general statements: "Give me one concrete Tuesday that captures this."
+
+CHAPTER-SPECIFIC THINKING:
+- CHILDHOOD: Mine for foundational moments, sensory memories, early patterns
+- FAMILY: Explore dynamics, unspoken rules, rituals
+- EDUCATION: Consider both formal learning and hidden curriculum
+
+AVOID:
+- Multiple follow-up questions in one response
+- Overly emotional or therapeutic language
+- American colloquialisms
+- Empty praise ("Amazing!", "Fascinating!")
+- Rushing past rich material
+
+EXAMPLE RESPONSE TO "I remember my grandmother's kitchen":
+"Kitchens often hold family history. Let's step into that space properly. What's the first smell that comes to mind? The feel of the worktop? And crucially—what version of yourself lived in that kitchen that doesn't exist elsewhere?"
+
+Focus: Extract material for a compelling biography. Every question should serve that purpose."""
+    else:
+        # Legacy mode (original behavior)
+        return f"""You are a warm, professional biographer helping document a life story.
 
 CURRENT CHAPTER: {current_chapter['title']}
 CURRENT QUESTION: "{current_question}"
@@ -349,7 +438,8 @@ def export_json():
             "project": "LifeStory AI",
             "user_id": st.session_state.user_id,
             "export_date": datetime.now().isoformat(),
-            "export_format": "JSON"
+            "export_format": "JSON",
+            "interview_style": "Professional Ghostwriter" if st.session_state.ghostwriter_mode else "Standard"
         },
         "chapters": {}
     }
@@ -429,11 +519,14 @@ def export_json():
 
 def export_text():
     """Export all responses as formatted text - includes ALL chapters and conversations"""
+    interview_style = "Professional Ghostwriter Interview" if st.session_state.ghostwriter_mode else "Standard Interview"
+    
     text = "=" * 60 + "\n"
     text += "MY LIFE STORY\n"
     text += "=" * 60 + "\n\n"
     text += f"Author: {st.session_state.user_id}\n"
-    text += f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}\n\n"
+    text += f"Interview Style: {interview_style}\n"
+    text += f"Generated: {datetime.now().strftime('%d %B %Y at %H:%M')}\n\n"
     
     has_content = False
     
@@ -470,7 +563,7 @@ def export_text():
                         elif msg["role"] == "assistant":
                             # Clean up the AI welcome message if it's just the generic one
                             if not ("I'd love to hear your thoughts about this question:" in msg['content'] and len(conversations[question_text]) == 1):
-                                ai_messages.append(f"AI Follow-up: {msg['content']}")
+                                ai_messages.append(f"Interviewer: {msg['content']}")
                     
                     # Add all conversation content
                     if user_answers:
@@ -537,7 +630,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.caption("A guided journey through your life story")
+st.caption("A professional guided journey through your life story")
 
 # Load user data on startup
 if st.session_state.user_id != "Guest":
@@ -571,6 +664,27 @@ with st.sidebar:
         
         load_user_data()
         st.rerun()
+    
+    # Professional Ghostwriter Mode Toggle
+    st.divider()
+    st.header("✍️ Interview Style")
+    
+    ghostwriter_mode = st.toggle(
+        "Professional Ghostwriter Mode", 
+        value=st.session_state.ghostwriter_mode,
+        help="When enabled, the AI acts as a professional biographer using advanced interviewing techniques to draw out richer, more detailed responses."
+    )
+    
+    if ghostwriter_mode != st.session_state.ghostwriter_mode:
+        st.session_state.ghostwriter_mode = ghostwriter_mode
+        st.rerun()
+    
+    if st.session_state.ghostwriter_mode:
+        st.success("✓ Professional mode active")
+        st.caption("AI will use advanced interviewing techniques")
+    else:
+        st.info("Standard mode active")
+        st.caption("AI will use simpler conversation style")
     
     st.divider()
     
@@ -736,6 +850,13 @@ current_question_text = current_chapter["questions"][st.session_state.current_qu
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
+    
+    # Show interview style indicator
+    if st.session_state.ghostwriter_mode:
+        st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode • Advanced Interviewing</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<p class="ghostwriter-tag">Standard Interview Mode</p>', unsafe_allow_html=True)
+        
 with col2:
     # Larger question counter
     st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Question {st.session_state.current_question + 1} of {len(current_chapter["questions"])}</div>', unsafe_allow_html=True)
@@ -803,9 +924,17 @@ conversation = st.session_state.chapter_conversations[current_chapter_id].get(cu
 
 # Display conversation - ALWAYS show at least an AI welcome message if empty
 if not conversation:
-    # Show AI welcome message for new questions
+    # Show appropriate welcome message based on mode
     with st.chat_message("assistant"):
-        welcome_msg = f"I'd love to hear your thoughts about this question: **{current_question_text}**"
+        if st.session_state.ghostwriter_mode:
+            # Professional ghostwriter welcome
+            welcome_msg = f"""Let's explore this question properly: **{current_question_text}**
+
+Take your time with this—good biographies are built from thoughtful reflection rather than quick answers."""
+        else:
+            # Standard welcome
+            welcome_msg = f"I'd love to hear your thoughts about this question: **{current_question_text}**"
+        
         st.markdown(welcome_msg)
         # Add to conversation so it shows in history
         conversation.append({"role": "assistant", "content": welcome_msg})
@@ -884,14 +1013,22 @@ if st.session_state.editing is None:
                 try:
                     messages_for_api = [
                         {"role": "system", "content": get_system_prompt()},
-                        *conversation[-3:]  # Last few messages for context
+                        *conversation[-5:]  # Last 5 messages for context (increased for richer conversation)
                     ]
+                    
+                    # Adjust parameters based on mode
+                    if st.session_state.ghostwriter_mode:
+                        temperature = 0.8  # Slightly more creative for professional responses
+                        max_tokens = 400   # Allow longer, more thoughtful responses
+                    else:
+                        temperature = 0.7
+                        max_tokens = 300
                     
                     response = client.chat.completions.create(
                         model="gpt-4-turbo-preview",
                         messages=messages_for_api,
-                        temperature=0.7,
-                        max_tokens=300
+                        temperature=temperature,
+                        max_tokens=max_tokens
                     )
                     
                     ai_response = response.choices[0].message.content
@@ -899,7 +1036,11 @@ if st.session_state.editing is None:
                     conversation.append({"role": "assistant", "content": ai_response})
                     
                 except Exception as e:
-                    error_msg = "Thank you for sharing that. Your response has been saved."
+                    if st.session_state.ghostwriter_mode:
+                        error_msg = "Thank you for that. Your response gives us good material to work with."
+                    else:
+                        error_msg = "Thank you for sharing that. Your response has been saved."
+                    
                     st.markdown(error_msg)
                     conversation.append({"role": "assistant", "content": error_msg})
         
