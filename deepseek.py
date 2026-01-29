@@ -101,7 +101,7 @@ def init_db():
 
 init_db()
 
-# Initialize session state - FIXED VERSION
+# Initialize session state - WITH SEPARATE CONVERSATIONS
 if "responses" not in st.session_state:
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
@@ -312,7 +312,7 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Export functions - FIXED VERSION
+# Export functions
 def export_json():
     """Export all responses as JSON"""
     export_data = {
@@ -569,10 +569,10 @@ with col1:
                 delete_response(current_chapter_id, current_question_text)
                 st.rerun()
     
-    # Show conversation for current chapter ONLY
+    # Show conversation for current chapter ONLY - THE WORKING FEATURE
     conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
     
-    # Auto-start conversation if empty
+    # Auto-start conversation if empty AND no existing answer
     if not conversation and not existing_answer:
         welcome_message = f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"
         st.session_state.chapter_conversations[current_chapter_id] = [{"role": "assistant", "content": welcome_message}]
@@ -668,14 +668,8 @@ if user_input:
     # Update conversation in session state
     st.session_state.chapter_conversations[current_chapter_id] = conversation
     
-    # Move to next question if available
-    if st.session_state.current_question < len(current_chapter["questions"]) - 1:
-        st.session_state.current_question += 1
-        # Start fresh conversation for new question
-        st.session_state.chapter_conversations[current_chapter_id] = []
-        st.rerun()
-    else:
-        # All questions answered
-        st.session_state.responses[current_chapter_id]["completed"] = True
-        st.rerun()
-
+    # DON'T auto-move to next question - let the user continue the conversation
+    # The AI can ask follow-up questions and the conversation can continue
+    
+    # Only move to next question when user clicks a navigation button
+    st.rerun()
