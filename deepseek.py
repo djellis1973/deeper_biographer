@@ -6,31 +6,31 @@ import os
 import sqlite3
 
 # ────────────────────────────────────────────────
-# CLEAN BRANDING WITH LOGO
+# CLEAN BRANDING WITH LOGO - SMALLER
 # ────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Clean CSS
+# Clean CSS with smaller header
 st.markdown(f"""
 <style>
     .main-header {{
         text-align: center;
-        padding: 2rem 0;
-        margin-bottom: 2rem;
+        padding: 1rem 0;
+        margin-bottom: 1rem;
     }}
     
     .logo-img {{
-        width: 100px;
-        height: 100px;
+        width: 60px;
+        height: 60px;
         border-radius: 50%;
         object-fit: cover;
-        margin-bottom: 1rem;
+        margin-bottom: 0.5rem;
     }}
     
     .question-box {{
         background-color: #f8f9fa;
-        padding: 1.5rem;
-        border-radius: 10px;
+        padding: 1rem;
+        border-radius: 8px;
         border-left: 4px solid #4a5568;
         margin-bottom: 1rem;
     }}
@@ -51,6 +51,18 @@ st.markdown(f"""
     .message-text {{
         flex: 1;
         min-width: 0;
+    }}
+    
+    /* Navigation buttons */
+    .nav-buttons {{
+        display: flex;
+        justify-content: space-between;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+    }}
+    
+    .nav-btn {{
+        width: 48%;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -446,12 +458,12 @@ def export_text():
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Clean header with logo
+# Clean header with logo - SMALLER
 st.markdown(f"""
 <div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
-    <h1>LifeStory AI</h1>
-    <p>Preserve Your Legacy • Share Your Story</p>
+    <h2>LifeStory AI</h2>
+    <p style="font-size: 0.9rem; color: #666;">Preserve Your Legacy • Share Your Story</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -547,17 +559,40 @@ with st.sidebar:
     
     st.divider()
     
-    # Navigation controls
-    st.subheader("Navigation")
+    # Navigation controls for moving between questions
+    st.subheader("Question Navigation")
+    
+    # Show current question number
+    current_chapter = CHAPTERS[st.session_state.current_chapter]
+    st.write(f"**Question {st.session_state.current_question + 1} of {len(current_chapter['questions'])}**")
+    
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Previous", disabled=st.session_state.current_chapter == 0):
+        # Previous question button
+        if st.button("← Previous", disabled=st.session_state.current_question == 0):
+            st.session_state.current_question = max(0, st.session_state.current_question - 1)
+            st.session_state.editing = None
+            st.rerun()
+    
+    with col2:
+        # Next question button
+        if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1):
+            st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
+            st.session_state.editing = None
+            st.rerun()
+    
+    # Chapter navigation
+    st.divider()
+    st.subheader("Chapter Navigation")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("← Prev Chapter", disabled=st.session_state.current_chapter == 0):
             st.session_state.current_chapter = max(0, st.session_state.current_chapter - 1)
             st.session_state.current_question = 0
             st.session_state.editing = None
             st.rerun()
     with col2:
-        if st.button("Next →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1):
+        if st.button("Next Chapter →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1):
             st.session_state.current_chapter = min(len(CHAPTERS)-1, st.session_state.current_chapter + 1)
             st.session_state.current_question = 0
             st.session_state.editing = None
@@ -627,8 +662,12 @@ current_chapter = CHAPTERS[st.session_state.current_chapter]
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Show chapter header
-st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
+# Show chapter header and question number
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
+with col2:
+    st.caption(f"Question {st.session_state.current_question + 1} of {len(current_chapter['questions'])}")
 
 # Show progress
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
@@ -638,7 +677,6 @@ total_questions = len(current_chapter["questions"])
 if total_questions > 0:
     progress = questions_answered / total_questions
     st.progress(min(progress, 1.0))
-    st.caption(f"Question {st.session_state.current_question + 1} of {total_questions}")
 
 # Show current question
 st.markdown(f"""
@@ -646,6 +684,21 @@ st.markdown(f"""
     <h4 style="margin: 0;">{current_question_text}</h4>
 </div>
 """, unsafe_allow_html=True)
+
+# Navigation buttons below question
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("← Previous Question", disabled=st.session_state.current_question == 0, key="prev_q_main"):
+        st.session_state.current_question = max(0, st.session_state.current_question - 1)
+        st.session_state.editing = None
+        st.rerun()
+with col2:
+    if st.button("Next Question →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_main"):
+        st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
+        st.session_state.editing = None
+        st.rerun()
+
+st.divider()
 
 # Show conversation for current chapter
 conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
@@ -748,4 +801,3 @@ if st.session_state.editing is None:
         # Update conversation
         st.session_state.chapter_conversations[current_chapter_id] = conversation
         st.rerun()
-
