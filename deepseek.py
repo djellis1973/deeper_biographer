@@ -6,31 +6,38 @@ import os
 import sqlite3
 
 # ────────────────────────────────────────────────
-# CLEAN BRANDING WITH LOGO - PROPER SPACING
+# CLEAN BRANDING WITH LOGO - FIXED SPACING
 # ────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Clean CSS with proper spacing
+# Clean CSS with fixed logo spacing
 st.markdown(f"""
 <style>
     /* Fix header spacing */
-    .stApp {{
-        padding-top: 0.5rem !important;
-    }}
-    
     .main-header {{
         text-align: center;
-        padding: 0.5rem 0;
-        margin: 0;
+        padding-top: 0.5rem;
+        margin-top: -1rem;
+        margin-bottom: 0.5rem;
     }}
     
     .logo-img {{
-        width: 80px;
-        height: 80px;
+        width: 100px;
+        height: 100px;
         border-radius: 50%;
         object-fit: cover;
-        margin: 0 auto 0.5rem auto;
+        margin: 0 auto 0.25rem auto;
         display: block;
+    }}
+    
+    .chapter-guidance {{
+        background-color: #e8f4f8;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #3498db;
+        margin-bottom: 1rem;
+        font-size: 0.95rem;
+        line-height: 1.5;
     }}
     
     .question-box {{
@@ -60,13 +67,8 @@ st.markdown(f"""
     }}
     
     /* Remove extra margins */
-    .block-container {{
+    [data-testid="stAppViewContainer"] {{
         padding-top: 0.5rem !important;
-        padding-bottom: 1rem !important;
-    }}
-    
-    .st-emotion-cache-1y4p8pa {{
-        padding: 0.5rem 1rem !important;
     }}
     
     /* Compact buttons */
@@ -80,11 +82,12 @@ st.markdown(f"""
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
 
-# Define the chapter structure from your PDF (first 3 chapters)
+# Define the chapter structure with guidance text
 CHAPTERS = [
     {
         "id": 1,
         "title": "Childhood",
+        "guidance": "Welcome to the Childhood chapter—this is where your story begins! Think back to your early years with an open heart. Share memories as vividly as you can: sights, sounds, feelings, smells, and little moments that still stay with you. There's no right or wrong way—honest reflections make the best stories. Take your time; it's okay if some memories are joyful, others bittersweet. This section helps readers see the roots of who you became.",
         "questions": [
             "What is your earliest memory?",
             "Can you describe your family home growing up?",
@@ -99,6 +102,7 @@ CHAPTERS = [
     {
         "id": 2,
         "title": "Family & Relationships",
+        "guidance": "Now let's turn to Family & Relationships—the people who shaped so much of your world. These questions invite you to reflect on connections, traditions, joys, and even challenges. Be as open as feels right; writing with kindness and honesty (from your own perspective) brings depth and authenticity to your story. Share what matters most to you.",
         "questions": [
             "How would you describe your relationship with your parents?",
             "Are there any family traditions you remember fondly?",
@@ -111,6 +115,7 @@ CHAPTERS = [
     {
         "id": 3,
         "title": "Education & Growing Up",
+        "guidance": "Here in Education & Growing Up, we're exploring your learning journey—from school days to any further steps you took. Think about what excited you, what challenged you, and the people or moments that made a difference. This part often reveals turning points and how you grew into yourself. Reflect freely—learning isn't just about qualifications; it's about discovery and growth.",
         "questions": [
             "What were your favourite subjects at school?",
             "Did you have any memorable teachers or mentors?",
@@ -141,7 +146,7 @@ def init_db():
 
 init_db()
 
-# Initialize session state - FIXED STRUCTURE
+# Initialize session state
 if "responses" not in st.session_state:
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
@@ -356,7 +361,7 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Export functions - UPDATED for new structure
+# Export functions
 def export_json():
     """Export all responses as JSON"""
     export_data = {
@@ -441,6 +446,9 @@ def export_text():
             text += f"\nCHAPTER {chapter_id}: {chapter['title']}\n"
             text += "-" * 50 + "\n\n"
             
+            # Add chapter guidance
+            text += f"{chapter.get('guidance', '')}\n\n"
+            
             # Add questions in order
             for question in chapter["questions"]:
                 if question in chapter_qa:
@@ -465,7 +473,7 @@ def export_text():
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Clean header with logo - PROPER SPACING
+# Clean header with logo - FIXED SPACING
 st.markdown(f"""
 <div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
@@ -480,7 +488,7 @@ st.caption("A guided journey through your life story")
 if st.session_state.user_id != "Guest":
     load_user_data()
 
-# Sidebar for navigation and controls
+# Sidebar for navigation and controls - REARRANGED
 with st.sidebar:
     st.header("👤 Your Profile")
     
@@ -508,26 +516,6 @@ with st.sidebar:
         
         load_user_data()
         st.rerun()
-    
-    st.divider()
-    
-    # Management Section
-    st.header("⚙️ Management")
-    
-    # Clear buttons
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Clear Current Chapter", type="secondary"):
-            current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
-            clear_chapter(current_chapter_id)
-            st.session_state.current_question = 0
-            st.session_state.editing = None
-            st.rerun()
-    
-    with col2:
-        if st.button("Clear All", type="secondary"):
-            clear_all()
-            st.rerun()
     
     st.divider()
     
@@ -616,7 +604,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Export section
+    # Export section - MOVED ABOVE MANAGEMENT
     st.subheader("📤 Export Options")
     
     # Show what will be exported
@@ -645,8 +633,26 @@ with st.sidebar:
     
     st.divider()
     
+    # Management Section - MOVED TO BOTTOM
+    st.subheader("⚙️ Management")
+    
+    # Clear buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Clear Current Chapter", type="secondary", key="clear_chap_bottom"):
+            current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
+            clear_chapter(current_chapter_id)
+            st.session_state.current_question = 0
+            st.session_state.editing = None
+            st.rerun()
+    
+    with col2:
+        if st.button("Clear All", type="secondary", key="clear_all_bottom"):
+            clear_all()
+            st.rerun()
+    
     # Complete chapter button in sidebar
-    if st.button("✅ Complete Chapter", type="primary", use_container_width=True):
+    if st.button("✅ Complete Chapter", type="primary", use_container_width=True, key="complete_chap_bottom"):
         current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
         chapter_data = st.session_state.responses.get(current_chapter_id, {})
         questions_answered = len(chapter_data.get("questions", {}))
@@ -669,7 +675,7 @@ current_chapter = CHAPTERS[st.session_state.current_chapter]
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Show chapter header and question number - COMPACT
+# Show chapter header and question number
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
@@ -698,6 +704,13 @@ if total_questions > 0:
     progress = questions_answered / total_questions
     st.progress(min(progress, 1.0))
 
+# Show chapter guidance - NEW SECTION
+st.markdown(f"""
+<div class="chapter-guidance">
+    {current_chapter.get('guidance', '')}
+</div>
+""", unsafe_allow_html=True)
+
 # Show current question
 st.markdown(f"""
 <div class="question-box">
@@ -705,24 +718,21 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Get conversation for current question - FIXED with backward compatibility
+# Get conversation for current question
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Handle backward compatibility: if chapter_conversations[chapter_id] is a list, convert to dict
+# Handle backward compatibility
 if current_chapter_id in st.session_state.chapter_conversations:
     if isinstance(st.session_state.chapter_conversations[current_chapter_id], list):
-        # Convert old list format to new dict format
         old_conversation = st.session_state.chapter_conversations[current_chapter_id]
         st.session_state.chapter_conversations[current_chapter_id] = {}
-        # Try to find which question this was for
         for msg in old_conversation:
             if "Let's start with:" in msg.get("content", ""):
                 question_match = msg["content"].split("Let's start with:")[-1].strip().strip('**')
                 if question_match:
                     st.session_state.chapter_conversations[current_chapter_id][question_match] = old_conversation
                     break
-        # If we couldn't determine, use current question
         if not st.session_state.chapter_conversations[current_chapter_id]:
             st.session_state.chapter_conversations[current_chapter_id][current_question_text] = old_conversation
 
@@ -733,10 +743,9 @@ if current_chapter_id not in st.session_state.chapter_conversations:
 # Get conversation for this specific question
 conversation = st.session_state.chapter_conversations[current_chapter_id].get(current_question_text, [])
 
-# Auto-start conversation if empty
+# Auto-start conversation if empty (WITHOUT THE REDUNDANT WELCOME TEXT)
 if not conversation:
-    welcome_message = f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"
-    conversation = [{"role": "assistant", "content": welcome_message}]
+    conversation = []
     st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
     st.rerun()
 
@@ -800,11 +809,14 @@ if st.session_state.editing is None:
             st.session_state.chapter_conversations[current_chapter_id] = {}
         
         if current_question_text not in st.session_state.chapter_conversations[current_chapter_id]:
-            st.session_state.chapter_conversations[current_chapter_id][current_question_text] = [
-                {"role": "assistant", "content": f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"}
-            ]
+            st.session_state.chapter_conversations[current_chapter_id][current_question_text] = []
         
         conversation = st.session_state.chapter_conversations[current_chapter_id][current_question_text]
+        
+        # If this is the first response for this question, AI can start with a simple prompt
+        if not conversation:
+            ai_opener = "I'd love to hear about this. Please share your thoughts:"
+            conversation.append({"role": "assistant", "content": ai_opener})
         
         # Add user message
         conversation.append({"role": "user", "content": user_input})
@@ -840,4 +852,3 @@ if st.session_state.editing is None:
         # Update conversation
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         st.rerun()
-
