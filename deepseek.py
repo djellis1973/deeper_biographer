@@ -34,6 +34,12 @@ st.markdown(f"""
         border-left: 4px solid #4a5568;
         margin-bottom: 1rem;
     }}
+    
+    .edit-btn {{
+        font-size: 0.8rem;
+        padding: 0.2rem 0.5rem;
+        margin-left: 0.5rem;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -101,13 +107,15 @@ def init_db():
 
 init_db()
 
-# Initialize session state - WITH SEPARATE CONVERSATIONS
+# Initialize session state - WITH SEPARATE CONVERSATIONS AND EDIT MODE
 if "responses" not in st.session_state:
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
     st.session_state.responses = {}
     st.session_state.user_id = "Guest"
     st.session_state.chapter_conversations = {}  # Separate conversations per chapter
+    st.session_state.editing_answer = None  # Track which answer is being edited
+    st.session_state.editing_answer_text = ""  # Store the text being edited
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -244,6 +252,8 @@ def clear_all():
     
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
+    st.session_state.editing_answer = None
+    st.session_state.editing_answer_text = ""
     
     # Clear database
     try:
@@ -287,7 +297,7 @@ def generate_chapter_summary(chapter_id):
     
     questions_answers = []
     for q, data in chapter["questions"].items():
-        questions_answers.append(f"Q: {q}\nA: {data.get('answer', 'No answer')[:200]}")
+        questions_answers.append(f"Q: {q}\nA: {data.get('answer', 'No answer')}")
     
     if not questions_answers:
         return "No responses yet for this chapter."
@@ -312,9 +322,9 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Export functions
+# Export functions - FIXED to export ALL conversation answers
 def export_json():
-    """Export all responses as JSON"""
+    """Export all responses as JSON including full conversation history"""
     export_data = {
         "metadata": {
             "project": "LifeStory AI",
@@ -325,20 +335,52 @@ def export_json():
         "chapters": {}
     }
     
-    # Only include chapters that have responses
+    # Get all answers from conversations too
+    all_responses = {}
+    for chapter_id, conversation in st.session_state.chapter_conversations.items():
+        # Parse conversation to extract questions and answers
+        for i in range(0, len(conversation)-1, 2):
+            if i+1 < len(conversation):
+                ai_message = conversation[i]["content"]
+                user_message = conversation[i+1]["content"]
+                
+                # Extract question from AI message (first question)
+                if "Let's start with:" in ai_message:
+                    question = ai_message.split("Let's start with:")[-1].strip()
+                elif "Q:" in ai_message:
+                    # For follow-up questions in the AI response
+                    question = ai_message.split("\n\n")[-1].strip() if "\n\n" in ai_message else ai_message.strip()
+                else:
+                    question = ai_message.strip()
+                
+                all_responses[question] = user_message
+    
+    # Add responses from database
     for chapter_id, chapter_data in st.session_state.responses.items():
-        if chapter_data.get("questions"):
+        for question, data in chapter_data.get("questions", {}).items():
+            all_responses[question] = data.get("answer", "")
+    
+    # Organize by chapter
+    for chapter in CHAPTERS:
+        chapter_id = chapter["id"]
+        chapter_responses = {}
+        
+        for question in chapter["questions"]:
+            if question in all_responses:
+                chapter_responses[question] = all_responses[question]
+        
+        if chapter_responses:
             export_data["chapters"][str(chapter_id)] = {
-                "title": chapter_data.get("title", f"Chapter {chapter_id}"),
-                "questions": chapter_data.get("questions", {}),
-                "summary": chapter_data.get("summary", ""),
-                "completed": chapter_data.get("completed", False)
+                "title": chapter["title"],
+                "questions": chapter_responses,
+                "summary": st.session_state.responses.get(chapter_id, {}).get("summary", ""),
+                "completed": st.session_state.responses.get(chapter_id, {}).get("completed", False)
             }
     
     return json.dumps(export_data, indent=2)
 
 def export_text():
-    """Export all responses as formatted text"""
+    """Export all responses as formatted text including full conversation"""
     text = "=" * 60 + "\n"
     text += "MY LIFE STORY\n"
     text += "=" * 60 + "\n\n"
@@ -348,20 +390,53 @@ def export_text():
     # Track if we have any content
     has_content = False
     
-    for chapter_id in sorted(st.session_state.responses.keys()):
-        chapter = st.session_state.responses[chapter_id]
+    # Process each chapter
+    for chapter in CHAPTERS:
+        chapter_id = chapter["id"]
+        chapter_title = chapter["title"]
         
-        # Only include chapters with questions
-        if chapter.get("questions"):
+        # Get all answers for this chapter from conversations
+        conversation = st.session_state.chapter_conversations.get(chapter_id, [])
+        chapter_answers = {}
+        
+        # Parse conversation to extract Q&A pairs
+        current_question = None
+        for message in conversation:
+            content = message["content"]
+            if message["role"] == "assistant":
+                # Extract question from assistant message
+                if "Let's start with:" in content:
+                    current_question = content.split("Let's start with:")[-1].strip()
+                elif "Q:" in content:
+                    # This handles follow-up questions embedded in AI responses
+                    lines = content.split('\n')
+                    for line in lines:
+                        if line.startswith("Q:") or "?" in line:
+                            current_question = line.strip()
+            elif message["role"] == "user" and current_question:
+                # This is an answer to the current question
+                chapter_answers[current_question] = content
+                current_question = None
+        
+        # Add answers from database (overwrites with saved answers)
+        chapter_data = st.session_state.responses.get(chapter_id, {})
+        for question, data in chapter_data.get("questions", {}).items():
+            chapter_answers[question] = data.get("answer", "")
+        
+        # Only include chapters with answers
+        if chapter_answers:
             has_content = True
-            text += f"\nCHAPTER {chapter_id}: {chapter.get('title', 'Untitled')}\n"
+            text += f"\nCHAPTER {chapter_id}: {chapter_title}\n"
             text += "-" * 50 + "\n\n"
             
-            for question, data in chapter.get("questions", {}).items():
-                text += f"Q: {question}\n"
-                text += f"A: {data.get('answer', '')}\n\n"
+            # Add all questions from the chapter structure
+            for question in chapter["questions"]:
+                if question in chapter_answers:
+                    text += f"Q: {question}\n"
+                    text += f"A: {chapter_answers[question]}\n\n"
             
-            summary = chapter.get("summary")
+            # Add summary if available
+            summary = chapter_data.get("summary")
             if summary and summary != "No responses yet for this chapter.":
                 text += "Summary:\n"
                 text += f"{summary}\n\n"
@@ -406,6 +481,8 @@ with st.sidebar:
         st.session_state.chapter_conversations = {}
         st.session_state.current_chapter = 0
         st.session_state.current_question = 0
+        st.session_state.editing_answer = None
+        st.session_state.editing_answer_text = ""
         
         # Reinitialize for new user
         for chapter in CHAPTERS:
@@ -433,6 +510,7 @@ with st.sidebar:
             current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
             clear_chapter(current_chapter_id)
             st.session_state.current_question = 0
+            st.session_state.editing_answer = None
             st.rerun()
     
     with col2:
@@ -463,6 +541,7 @@ with st.sidebar:
                     use_container_width=True):
             st.session_state.current_chapter = i
             st.session_state.current_question = 0
+            st.session_state.editing_answer = None
             st.rerun()
         
         # Show progress within chapter
@@ -483,11 +562,13 @@ with st.sidebar:
         if st.button("← Previous", disabled=st.session_state.current_chapter == 0):
             st.session_state.current_chapter = max(0, st.session_state.current_chapter - 1)
             st.session_state.current_question = 0
+            st.session_state.editing_answer = None
             st.rerun()
     with col2:
         if st.button("Next →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1):
             st.session_state.current_chapter = min(len(CHAPTERS)-1, st.session_state.current_chapter + 1)
             st.session_state.current_question = 0
+            st.session_state.editing_answer = None
             st.rerun()
     
     # Jump to specific chapter
@@ -496,6 +577,7 @@ with st.sidebar:
     if chapter_options.index(selected_chapter) != st.session_state.current_chapter:
         st.session_state.current_chapter = chapter_options.index(selected_chapter)
         st.session_state.current_question = 0
+        st.session_state.editing_answer = None
         st.rerun()
     
     st.divider()
@@ -505,10 +587,11 @@ with st.sidebar:
     
     # Show what will be exported
     total_answers = sum(len(ch.get("questions", {})) for ch in st.session_state.responses.values())
-    st.caption(f"Total answers to export: {total_answers}")
+    total_conversation_answers = sum(len([m for m in conv if m["role"] == "user"]) for conv in st.session_state.chapter_conversations.values())
+    st.caption(f"Total answers to export: {max(total_answers, total_conversation_answers)}")
     
     if st.button("📥 Export Current Progress", type="primary"):
-        if total_answers > 0:
+        if max(total_answers, total_conversation_answers) > 0:
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
@@ -559,37 +642,75 @@ with col1:
     </div>
     """, unsafe_allow_html=True)
     
-    # Show existing answer if already answered
-    existing_answer = chapter_data.get("questions", {}).get(current_question_text, {}).get("answer", "")
-    if existing_answer:
-        with st.expander("📝 Your previous answer:", expanded=False):
-            st.markdown(existing_answer)
-            
-            if st.button("🗑️ Delete this answer", key=f"delete_current"):
-                delete_response(current_chapter_id, current_question_text)
-                st.rerun()
-    
-    # Show conversation for current chapter ONLY - THE WORKING FEATURE
+    # Show conversation for current chapter ONLY
     conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
     
-    # Auto-start conversation if empty AND no existing answer
-    if not conversation and not existing_answer:
+    # Auto-start conversation if empty
+    if not conversation:
         welcome_message = f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"
         st.session_state.chapter_conversations[current_chapter_id] = [{"role": "assistant", "content": welcome_message}]
         conversation = st.session_state.chapter_conversations[current_chapter_id]
         st.rerun()
     
-    # Display conversation
-    for message in conversation:
+    # Display conversation WITH EDIT BUTTONS
+    for i, message in enumerate(conversation):
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            content = message["content"]
+            
+            # For user messages, show edit button
+            if message["role"] == "user":
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    st.markdown(content)
+                with col2:
+                    # Check if this is the answer being edited
+                    if st.session_state.editing_answer == i:
+                        if st.button("✓", key=f"save_edit_{i}"):
+                            # Save the edited answer
+                            if st.session_state.editing_answer_text.strip():
+                                # Update conversation
+                                conversation[i]["content"] = st.session_state.editing_answer_text
+                                st.session_state.chapter_conversations[current_chapter_id] = conversation
+                                
+                                # Also save to database if this is the main question
+                                if i == 1:  # First user answer (after welcome)
+                                    save_response(current_chapter_id, current_question_text, st.session_state.editing_answer_text)
+                                
+                            st.session_state.editing_answer = None
+                            st.rerun()
+                        
+                        # Edit text area
+                        new_answer = st.text_area(
+                            "Edit your answer:",
+                            value=st.session_state.editing_answer_text,
+                            key=f"edit_text_{i}",
+                            label_visibility="collapsed"
+                        )
+                        if new_answer != st.session_state.editing_answer_text:
+                            st.session_state.editing_answer_text = new_answer
+                    else:
+                        if st.button("✏️", key=f"edit_{i}"):
+                            st.session_state.editing_answer = i
+                            st.session_state.editing_answer_text = content
+                            st.rerun()
+            else:
+                # For AI messages, just show the content
+                st.markdown(content)
 
 with col2:
-    # Current chapter overview
+    # Current chapter overview - SIMPLIFIED
     st.subheader("Current Questions")
     for i, question in enumerate(current_chapter["questions"]):
         is_current = i == st.session_state.current_question
-        is_answered = question in chapter_data.get("questions", {})
+        
+        # Check if this question has been answered
+        is_answered = False
+        conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+        # Check if there's a user answer after an AI message mentioning this question
+        for msg in conversation:
+            if question in msg["content"]:
+                is_answered = True
+                break
         
         if is_current:
             st.markdown(f"<span style='color:blue; font-weight:bold;'>▶️ {question[:50]}...</span>", unsafe_allow_html=True)
@@ -600,25 +721,12 @@ with col2:
     
     st.divider()
     
-    # Review and manage
-    with st.expander("📋 Review Answers"):
-        if chapter_data.get("questions"):
-            for question, data in chapter_data.get("questions", {}).items():
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    st.caption(f"Q: {question[:40]}...")
-                with col_b:
-                    if st.button("🗑️", key=f"delete_{hash(question)}"):
-                        delete_response(current_chapter_id, question)
-                        st.rerun()
-        else:
-            st.caption("No answers yet in this chapter")
-    
-    st.divider()
-    
-    # Complete chapter
-    if st.button("✅ Complete Chapter", type="primary"):
-        if questions_answered > 0:
+    # Complete chapter button only
+    if st.button("✅ Complete Chapter", type="primary", use_container_width=True):
+        conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+        user_answers = [msg["content"] for msg in conversation if msg["role"] == "user"]
+        
+        if len(user_answers) > 0:
             summary = generate_chapter_summary(current_chapter_id)
             st.session_state.responses[current_chapter_id]["summary"] = summary
             st.session_state.responses[current_chapter_id]["completed"] = True
@@ -627,49 +735,48 @@ with col2:
         else:
             st.warning("Answer at least one question before completing the chapter.")
 
-# Chat input
-user_input = st.chat_input("Type your answer here...")
-
-if user_input:
-    current_chapter_id = current_chapter["id"]
+# Chat input - only show if not editing
+if st.session_state.editing_answer is None:
+    user_input = st.chat_input("Type your answer here...")
     
-    # Save response
-    save_response(current_chapter_id, current_question_text, user_input)
-    
-    # Add to conversation
-    conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
-    conversation.append({"role": "user", "content": user_input})
-    
-    # Generate AI response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                messages_for_api = [
-                    {"role": "system", "content": get_system_prompt()},
-                    *conversation[-3:]  # Last few messages for context
-                ]
-                
-                response = client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
-                    messages=messages_for_api,
-                    temperature=0.7,
-                    max_tokens=300
-                )
-                
-                ai_response = response.choices[0].message.content
-                st.markdown(ai_response)
-                conversation.append({"role": "assistant", "content": ai_response})
-                
-            except Exception as e:
-                error_msg = "Thank you for sharing that. Your response has been saved."
-                st.markdown(error_msg)
-                conversation.append({"role": "assistant", "content": error_msg})
-    
-    # Update conversation in session state
-    st.session_state.chapter_conversations[current_chapter_id] = conversation
-    
-    # DON'T auto-move to next question - let the user continue the conversation
-    # The AI can ask follow-up questions and the conversation can continue
-    
-    # Only move to next question when user clicks a navigation button
-    st.rerun()
+    if user_input:
+        current_chapter_id = current_chapter["id"]
+        
+        # Add to conversation
+        conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+        conversation.append({"role": "user", "content": user_input})
+        
+        # Generate AI response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    messages_for_api = [
+                        {"role": "system", "content": get_system_prompt()},
+                        *conversation[-3:]  # Last few messages for context
+                    ]
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4-turbo-preview",
+                        messages=messages_for_api,
+                        temperature=0.7,
+                        max_tokens=300
+                    )
+                    
+                    ai_response = response.choices[0].message.content
+                    st.markdown(ai_response)
+                    conversation.append({"role": "assistant", "content": ai_response})
+                    
+                except Exception as e:
+                    error_msg = "Thank you for sharing that. Your response has been saved."
+                    st.markdown(error_msg)
+                    conversation.append({"role": "assistant", "content": error_msg})
+        
+        # Save the first answer to database (for the main question)
+        if len(conversation) == 2:  # Welcome + first answer
+            save_response(current_chapter_id, current_question_text, user_input)
+        
+        # Update conversation in session state
+        st.session_state.chapter_conversations[current_chapter_id] = conversation
+        
+        # DON'T auto-move to next question - let the user continue the conversation
+        st.rerun()
