@@ -6,39 +6,39 @@ import os
 import sqlite3
 
 # ────────────────────────────────────────────────
-# CLEAN BRANDING WITH LOGO - SMALLER
+# CLEAN BRANDING WITH LOGO - COMPACT
 # ────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Clean CSS with smaller header
+# Clean CSS with minimal whitespace
 st.markdown(f"""
 <style>
     .main-header {{
         text-align: center;
-        padding: 1rem 0;
-        margin-bottom: 1rem;
+        padding: 0.5rem 0;
+        margin-bottom: 0.5rem;
     }}
     
     .logo-img {{
-        width: 60px;
-        height: 60px;
+        width: 80px;
+        height: 80px;
         border-radius: 50%;
         object-fit: cover;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.25rem;
     }}
     
     .question-box {{
         background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #4a5568;
-        margin-bottom: 1rem;
+        padding: 0.75rem;
+        border-radius: 6px;
+        border-left: 3px solid #4a5568;
+        margin-bottom: 0.75rem;
     }}
     
-    /* Fix for chat layout */
+    /* Compact chat layout */
     .stChatMessage {{
-        padding: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
+        padding: 0.25rem !important;
+        margin-bottom: 0.25rem !important;
     }}
     
     .user-message-container {{
@@ -53,16 +53,25 @@ st.markdown(f"""
         min-width: 0;
     }}
     
-    /* Navigation buttons */
-    .nav-buttons {{
-        display: flex;
-        justify-content: space-between;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
+    /* Remove extra margins */
+    .block-container {{
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
     }}
     
-    .nav-btn {{
-        width: 48%;
+    .st-emotion-cache-1y4p8pa {{
+        padding: 1rem !important;
+    }}
+    
+    /* Compact buttons */
+    .stButton button {{
+        padding: 0.25rem 0.5rem !important;
+        font-size: 0.9rem !important;
+    }}
+    
+    /* Smaller progress bar */
+    .stProgress > div > div > div {{
+        height: 6px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -371,18 +380,17 @@ def export_json():
             chapter_qa[q] = data.get("answer", "")
         
         # Also check conversation for additional answers
-        conversation = st.session_state.chapter_conversations.get(chapter_id, [])
+        conversation = st.session_state.chapter_conversations.get(chapter_id, {})
         if conversation:
-            # Extract the main question from welcome message
-            for msg in conversation:
-                if msg["role"] == "assistant" and "Let's start with:" in msg["content"]:
-                    question_match = msg["content"].split("Let's start with:")[-1].strip().strip('**')
-                    if question_match and question_match not in chapter_qa:
-                        # Find the corresponding user answer
-                        msg_index = conversation.index(msg)
-                        if msg_index + 1 < len(conversation) and conversation[msg_index + 1]["role"] == "user":
-                            chapter_qa[question_match] = conversation[msg_index + 1]["content"]
-                    break
+            for question_text, q_conversation in conversation.items():
+                if question_text not in chapter_qa:
+                    # Find user answers in conversation
+                    user_answers = []
+                    for msg in q_conversation:
+                        if msg["role"] == "user":
+                            user_answers.append(msg["content"])
+                    if user_answers:
+                        chapter_qa[question_text] = " ".join(user_answers)
         
         # Only include chapters with answers
         if chapter_qa:
@@ -417,16 +425,16 @@ def export_text():
             chapter_qa[q] = data.get("answer", "")
         
         # Also check conversation
-        conversation = st.session_state.chapter_conversations.get(chapter_id, [])
+        conversation = st.session_state.chapter_conversations.get(chapter_id, {})
         if conversation:
-            for msg in conversation:
-                if msg["role"] == "assistant" and "Let's start with:" in msg["content"]:
-                    question_match = msg["content"].split("Let's start with:")[-1].strip().strip('**')
-                    if question_match and question_match not in chapter_qa:
-                        msg_index = conversation.index(msg)
-                        if msg_index + 1 < len(conversation) and conversation[msg_index + 1]["role"] == "user":
-                            chapter_qa[question_match] = conversation[msg_index + 1]["content"]
-                    break
+            for question_text, q_conversation in conversation.items():
+                if question_text not in chapter_qa:
+                    user_answers = []
+                    for msg in q_conversation:
+                        if msg["role"] == "user":
+                            user_answers.append(msg["content"])
+                    if user_answers:
+                        chapter_qa[question_text] = " ".join(user_answers)
         
         # Only include chapters with answers
         if chapter_qa:
@@ -458,12 +466,12 @@ def export_text():
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Clean header with logo - SMALLER
+# Clean header with logo - COMPACT
 st.markdown(f"""
 <div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
-    <h2>LifeStory AI</h2>
-    <p style="font-size: 0.9rem; color: #666;">Preserve Your Legacy • Share Your Story</p>
+    <h2 style="margin: 0;">LifeStory AI</h2>
+    <p style="font-size: 0.9rem; color: #666; margin: 0;">Preserve Your Legacy • Share Your Story</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -497,7 +505,7 @@ with st.sidebar:
                 "summary": "",
                 "completed": False
             }
-            st.session_state.chapter_conversations[chapter_id] = []
+            st.session_state.chapter_conversations[chapter_id] = {}
         
         load_user_data()
         st.rerun()
@@ -569,14 +577,14 @@ with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
         # Previous question button
-        if st.button("← Previous", disabled=st.session_state.current_question == 0):
+        if st.button("← Previous", disabled=st.session_state.current_question == 0, key="prev_q_sidebar"):
             st.session_state.current_question = max(0, st.session_state.current_question - 1)
             st.session_state.editing = None
             st.rerun()
     
     with col2:
         # Next question button
-        if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1):
+        if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_sidebar"):
             st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
             st.session_state.editing = None
             st.rerun()
@@ -586,13 +594,13 @@ with st.sidebar:
     st.subheader("Chapter Navigation")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Prev Chapter", disabled=st.session_state.current_chapter == 0):
+        if st.button("← Prev Chapter", disabled=st.session_state.current_chapter == 0, key="prev_chap_sidebar"):
             st.session_state.current_chapter = max(0, st.session_state.current_chapter - 1)
             st.session_state.current_question = 0
             st.session_state.editing = None
             st.rerun()
     with col2:
-        if st.button("Next Chapter →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1):
+        if st.button("Next Chapter →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1, key="next_chap_sidebar"):
             st.session_state.current_chapter = min(len(CHAPTERS)-1, st.session_state.current_chapter + 1)
             st.session_state.current_question = 0
             st.session_state.editing = None
@@ -662,12 +670,25 @@ current_chapter = CHAPTERS[st.session_state.current_chapter]
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Show chapter header and question number
-col1, col2 = st.columns([3, 1])
+# Show chapter header and question number - COMPACT
+col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
 with col2:
     st.caption(f"Question {st.session_state.current_question + 1} of {len(current_chapter['questions'])}")
+with col3:
+    # Quick navigation buttons
+    nav_col1, nav_col2 = st.columns(2)
+    with nav_col1:
+        if st.button("←", disabled=st.session_state.current_question == 0, key="prev_q_quick"):
+            st.session_state.current_question = max(0, st.session_state.current_question - 1)
+            st.session_state.editing = None
+            st.rerun()
+    with nav_col2:
+        if st.button("→", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_quick"):
+            st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
+            st.session_state.editing = None
+            st.rerun()
 
 # Show progress
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
@@ -685,29 +706,22 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Navigation buttons below question
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("← Previous Question", disabled=st.session_state.current_question == 0, key="prev_q_main"):
-        st.session_state.current_question = max(0, st.session_state.current_question - 1)
-        st.session_state.editing = None
-        st.rerun()
-with col2:
-    if st.button("Next Question →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_main"):
-        st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
-        st.session_state.editing = None
-        st.rerun()
+# Get conversation for current question - CHANGED: Each question has its own conversation
+current_chapter_id = current_chapter["id"]
+current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-st.divider()
+# Initialize conversations dictionary structure if needed
+if current_chapter_id not in st.session_state.chapter_conversations:
+    st.session_state.chapter_conversations[current_chapter_id] = {}
 
-# Show conversation for current chapter
-conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+# Get conversation for this specific question
+conversation = st.session_state.chapter_conversations[current_chapter_id].get(current_question_text, [])
 
 # Auto-start conversation if empty
 if not conversation:
     welcome_message = f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"
-    st.session_state.chapter_conversations[current_chapter_id] = [{"role": "assistant", "content": welcome_message}]
-    conversation = st.session_state.chapter_conversations[current_chapter_id]
+    conversation = [{"role": "assistant", "content": welcome_message}]
+    st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
     st.rerun()
 
 # Display conversation
@@ -718,7 +732,7 @@ for i, message in enumerate(conversation):
     
     elif message["role"] == "user":
         # Check if this message is being edited
-        is_editing = (st.session_state.editing == (current_chapter_id, i))
+        is_editing = (st.session_state.editing == (current_chapter_id, current_question_text, i))
         
         with st.chat_message("user"):
             if is_editing:
@@ -726,25 +740,24 @@ for i, message in enumerate(conversation):
                 new_text = st.text_area(
                     "Edit your answer:",
                     value=st.session_state.edit_text,
-                    key=f"edit_area_{current_chapter_id}_{i}",
+                    key=f"edit_area_{current_chapter_id}_{hash(current_question_text)}_{i}",
                     label_visibility="collapsed"
                 )
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("✓ Save", key=f"save_{current_chapter_id}_{i}", type="primary"):
+                    if st.button("✓ Save", key=f"save_{current_chapter_id}_{hash(current_question_text)}_{i}", type="primary"):
                         # Save the edited answer
                         conversation[i]["content"] = new_text
-                        st.session_state.chapter_conversations[current_chapter_id] = conversation
+                        st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
                         
-                        # Also save to database if this is the main question answer
-                        if i == 1:  # First user answer (right after welcome)
-                            save_response(current_chapter_id, current_question_text, new_text)
+                        # Save to database
+                        save_response(current_chapter_id, current_question_text, new_text)
                         
                         st.session_state.editing = None
                         st.rerun()
                 with col2:
-                    if st.button("✕ Cancel", key=f"cancel_{current_chapter_id}_{i}"):
+                    if st.button("✕ Cancel", key=f"cancel_{current_chapter_id}_{hash(current_question_text)}_{i}"):
                         st.session_state.editing = None
                         st.rerun()
             else:
@@ -753,8 +766,8 @@ for i, message in enumerate(conversation):
                 with col1:
                     st.markdown(message["content"])
                 with col2:
-                    if st.button("✏️", key=f"edit_{current_chapter_id}_{i}"):
-                        st.session_state.editing = (current_chapter_id, i)
+                    if st.button("✏️", key=f"edit_{current_chapter_id}_{hash(current_question_text)}_{i}"):
+                        st.session_state.editing = (current_chapter_id, current_question_text, i)
                         st.session_state.edit_text = message["content"]
                         st.rerun()
 
@@ -764,9 +777,20 @@ if st.session_state.editing is None:
     
     if user_input:
         current_chapter_id = current_chapter["id"]
+        current_question_text = current_chapter["questions"][st.session_state.current_question]
         
-        # Add to conversation
-        conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+        # Get conversation for this question
+        if current_chapter_id not in st.session_state.chapter_conversations:
+            st.session_state.chapter_conversations[current_chapter_id] = {}
+        
+        if current_question_text not in st.session_state.chapter_conversations[current_chapter_id]:
+            st.session_state.chapter_conversations[current_chapter_id][current_question_text] = [
+                {"role": "assistant", "content": f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"}
+            ]
+        
+        conversation = st.session_state.chapter_conversations[current_chapter_id][current_question_text]
+        
+        # Add user message
         conversation.append({"role": "user", "content": user_input})
         
         # Generate AI response
@@ -794,10 +818,10 @@ if st.session_state.editing is None:
                     st.markdown(error_msg)
                     conversation.append({"role": "assistant", "content": error_msg})
         
-        # Save the first answer to database
-        if len(conversation) == 2:  # Welcome + first answer
-            save_response(current_chapter_id, current_question_text, user_input)
+        # Save to database
+        save_response(current_chapter_id, current_question_text, user_input)
         
         # Update conversation
-        st.session_state.chapter_conversations[current_chapter_id] = conversation
+        st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         st.rerun()
+
