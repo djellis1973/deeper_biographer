@@ -3,7 +3,66 @@ import json
 from datetime import datetime
 from openai import OpenAI
 import os
-import sqlite3  # ONLY NEW IMPORT
+import sqlite3
+
+# ────────────────────────────────────────────────
+# YOUR BRANDING
+# ────────────────────────────────────────────────
+BRAND_COLORS = {
+    "beige": "#b5aa96",
+    "background_grey": "#c7c7c4", 
+    "dark_grey": "#3e403f"
+}
+
+LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
+
+# Apply branding CSS
+st.markdown(f"""
+<style>
+    .stApp {{
+        background-color: {BRAND_COLORS['background_grey']};
+    }}
+    
+    .brand-header {{
+        background: linear-gradient(135deg, {BRAND_COLORS['dark_grey']} 0%, #2d2f2e 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        color: white;
+        margin-bottom: 2rem;
+        text-align: center;
+    }}
+    
+    .logo-img {{
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 4px solid {BRAND_COLORS['beige']};
+        margin-bottom: 1rem;
+    }}
+    
+    .stButton > button {{
+        background-color: {BRAND_COLORS['dark_grey']} !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+    }}
+    
+    .stButton > button:hover {{
+        background-color: {BRAND_COLORS['beige']} !important;
+        color: {BRAND_COLORS['dark_grey']} !important;
+    }}
+    
+    .brand-footer {{
+        background-color: {BRAND_COLORS['dark_grey']};
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-top: 3rem;
+        text-align: center;
+    }}
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
@@ -240,10 +299,20 @@ def export_text():
     
     return text
 
-# Streamlit UI
-st.set_page_config(page_title="Autobiography Creator", page_icon="📖", layout="wide")
+# ────────────────────────────────────────────────
+# STREAMLIT UI WITH BRANDING
+# ────────────────────────────────────────────────
+st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-st.title("📖 Autobiography Creator")
+# Branded Header
+st.markdown(f"""
+<div class="brand-header">
+    <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
+    <h1 style="margin: 0;">LifeStory AI</h1>
+    <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Preserve Your Legacy • Share Your Story</p>
+</div>
+""", unsafe_allow_html=True)
+
 st.caption("A guided journey through your life story")
 
 # Sidebar for navigation and controls
@@ -435,3 +504,14 @@ Now, I'd love to hear about: {new_question}"""
                 
                 st.markdown(fallback_response)
                 st.session_state.messages.append({"role": "assistant", "content": fallback_response})
+
+# Branded Footer
+st.markdown(f"""
+<div class="brand-footer">
+    <h3 style="margin: 0; color: white;">LifeStory AI</h3>
+    <p style="margin: 0; opacity: 0.8;">Preserving personal histories for future generations</p>
+    <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; opacity: 0.7;">
+        Your stories are saved securely in your local database
+    </p>
+</div>
+""", unsafe_allow_html=True)
