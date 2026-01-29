@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from openai import OpenAI
 import os
+import sqlite3  # ONLY NEW IMPORT
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
@@ -50,6 +51,24 @@ CHAPTERS = [
     }
 ]
 
+# Initialize database
+def init_db():
+    conn = sqlite3.connect('life_story.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS responses (
+            user_id TEXT,
+            chapter_id INTEGER,
+            question TEXT,
+            answer TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -57,6 +76,7 @@ if "messages" not in st.session_state:
     st.session_state.current_question = 0  # Index in current chapter's questions
     st.session_state.responses = {}
     st.session_state.interview_started = False
+    st.session_state.user_id = "Guest"  # Default user
     
     # Initialize response structure
     for chapter in CHAPTERS:
@@ -66,6 +86,67 @@ if "messages" not in st.session_state:
             "summary": "",
             "completed": False
         }
+
+# Load user data from database
+def load_user_data():
+    if st.session_state.user_id == "Guest":
+        return
+    
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT chapter_id, question, answer 
+            FROM responses 
+            WHERE user_id = ?
+        """, (st.session_state.user_id,))
+        
+        for chapter_id, question, answer in cursor.fetchall():
+            if chapter_id not in st.session_state.responses:
+                continue
+            st.session_state.responses[chapter_id]["questions"][question] = {
+                "answer": answer,
+                "timestamp": datetime.now().isoformat(),
+                "privacy_level": "Not set"
+            }
+        
+        conn.close()
+    except:
+        pass
+
+# Save response to database
+def save_response(chapter_id, question, answer):
+    user_id = st.session_state.user_id
+    
+    # Save to session state
+    chapter_key = chapter_id
+    if chapter_key not in st.session_state.responses:
+        st.session_state.responses[chapter_key] = {
+            "title": CHAPTERS[chapter_id-1]["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False
+        }
+    
+    st.session_state.responses[chapter_key]["questions"][question] = {
+        "answer": answer,
+        "timestamp": datetime.now().isoformat(),
+        "privacy_level": "Not set"
+    }
+    
+    # Save to database
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO responses 
+            (user_id, chapter_id, question, answer) 
+            VALUES (?, ?, ?, ?)
+        """, (user_id, chapter_id, question, answer))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 # Dynamic system prompt based on current chapter
 def get_system_prompt():
@@ -97,23 +178,6 @@ SPECIAL FEATURES (mention occasionally):
 
 Tone: Warm, empathetic, curious, slightly literary. Focus on drawing out vivid details and authentic emotions.
 Always keep the user in control of the pace and direction."""
-
-# Store response
-def store_response(chapter_id, question, answer):
-    chapter_key = chapter_id
-    if chapter_key not in st.session_state.responses:
-        st.session_state.responses[chapter_key] = {
-            "title": CHAPTERS[chapter_id-1]["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False
-        }
-    
-    st.session_state.responses[chapter_key]["questions"][question] = {
-        "answer": answer,
-        "timestamp": datetime.now().isoformat(),
-        "privacy_level": "Not set"  # Can be updated later
-    }
 
 # Generate chapter summary
 def generate_chapter_summary(chapter_id):
@@ -184,6 +248,19 @@ st.caption("A guided journey through your life story")
 
 # Sidebar for navigation and controls
 with st.sidebar:
+    st.header("👤 Your Profile")
+    
+    new_user_id = st.text_input("Your Name:", value=st.session_state.user_id)
+    
+    if new_user_id != st.session_state.user_id:
+        st.session_state.user_id = new_user_id
+        st.session_state.messages = []
+        st.session_state.interview_started = False
+        load_user_data()
+        st.rerun()
+    
+    st.divider()
+    
     st.header("Chapter Progress")
     
     # Chapter progress tracker
@@ -269,7 +346,7 @@ with col1:
     
     # Auto-start interview if not started
     if not st.session_state.interview_started:
-        welcome_message = f"""Hello! I'm your biographer, and I'm here to help you create a beautiful, authentic record of your life story.
+        welcome_message = f"""Hello **{st.session_state.user_id}**! I'm your biographer, and I'm here to help you create a beautiful, authentic record of your life story.
 
 We'll work through {len(CHAPTERS)} chapters together:
 1. Childhood
@@ -314,9 +391,9 @@ if prompt := st.chat_input("Your response..."):
     # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Store the response
+    # Store the response (NOW SAVES TO DATABASE)
     current_question_text = current_chapter["questions"][st.session_state.current_question]
-    store_response(current_chapter["id"], current_question_text, prompt)
+    save_response(current_chapter["id"], current_question_text, prompt)  # Changed to save_response
     
     # Move to next question in current chapter
     if st.session_state.current_question < len(current_chapter["questions"]) - 1:
