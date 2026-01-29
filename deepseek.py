@@ -6,17 +6,22 @@ import os
 import sqlite3
 
 # ────────────────────────────────────────────────
-# CLEAN BRANDING WITH LOGO - COMPACT
+# CLEAN BRANDING WITH LOGO - PROPER SPACING
 # ────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Clean CSS with minimal whitespace
+# Clean CSS with proper spacing
 st.markdown(f"""
 <style>
+    /* Fix header spacing */
+    .stApp {{
+        padding-top: 0.5rem !important;
+    }}
+    
     .main-header {{
         text-align: center;
         padding: 0.5rem 0;
-        margin-bottom: 0.5rem;
+        margin: 0;
     }}
     
     .logo-img {{
@@ -24,7 +29,8 @@ st.markdown(f"""
         height: 80px;
         border-radius: 50%;
         object-fit: cover;
-        margin-bottom: 0.25rem;
+        margin: 0 auto 0.5rem auto;
+        display: block;
     }}
     
     .question-box {{
@@ -55,23 +61,18 @@ st.markdown(f"""
     
     /* Remove extra margins */
     .block-container {{
-        padding-top: 1rem !important;
+        padding-top: 0.5rem !important;
         padding-bottom: 1rem !important;
     }}
     
     .st-emotion-cache-1y4p8pa {{
-        padding: 1rem !important;
+        padding: 0.5rem 1rem !important;
     }}
     
     /* Compact buttons */
     .stButton button {{
         padding: 0.25rem 0.5rem !important;
         font-size: 0.9rem !important;
-    }}
-    
-    /* Smaller progress bar */
-    .stProgress > div > div > div {{
-        height: 6px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -140,14 +141,14 @@ def init_db():
 
 init_db()
 
-# Initialize session state
+# Initialize session state - FIXED STRUCTURE
 if "responses" not in st.session_state:
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
     st.session_state.responses = {}
     st.session_state.user_id = "Guest"
-    st.session_state.chapter_conversations = {}
-    st.session_state.editing = None  # (chapter_id, message_index)
+    st.session_state.chapter_conversations = {}  # Will be: {chapter_id: {question_text: conversation}}
+    st.session_state.editing = None  # (chapter_id, question_text, message_index)
     st.session_state.edit_text = ""
     
     # Initialize for each chapter
@@ -159,7 +160,7 @@ if "responses" not in st.session_state:
             "summary": "",
             "completed": False
         }
-        st.session_state.chapter_conversations[chapter_id] = []
+        st.session_state.chapter_conversations[chapter_id] = {}  # Empty dict for questions
 
 # Load user data from database
 def load_user_data():
@@ -253,7 +254,7 @@ def clear_chapter(chapter_id):
     
     # Clear conversation for this chapter
     if chapter_id in st.session_state.chapter_conversations:
-        st.session_state.chapter_conversations[chapter_id] = []
+        st.session_state.chapter_conversations[chapter_id] = {}
     
     # Clear from database
     try:
@@ -281,7 +282,7 @@ def clear_all():
             "summary": "",
             "completed": False
         }
-        st.session_state.chapter_conversations[chapter_id] = []
+        st.session_state.chapter_conversations[chapter_id] = {}
     
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
@@ -355,7 +356,7 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Export functions
+# Export functions - UPDATED for new structure
 def export_json():
     """Export all responses as JSON"""
     export_data = {
@@ -380,17 +381,16 @@ def export_json():
             chapter_qa[q] = data.get("answer", "")
         
         # Also check conversation for additional answers
-        conversation = st.session_state.chapter_conversations.get(chapter_id, {})
-        if conversation:
-            for question_text, q_conversation in conversation.items():
-                if question_text not in chapter_qa:
-                    # Find user answers in conversation
-                    user_answers = []
-                    for msg in q_conversation:
-                        if msg["role"] == "user":
-                            user_answers.append(msg["content"])
-                    if user_answers:
-                        chapter_qa[question_text] = " ".join(user_answers)
+        conversations = st.session_state.chapter_conversations.get(chapter_id, {})
+        for question_text, conversation in conversations.items():
+            if question_text not in chapter_qa:
+                # Find user answers in conversation
+                user_answers = []
+                for msg in conversation:
+                    if msg["role"] == "user":
+                        user_answers.append(msg["content"])
+                if user_answers:
+                    chapter_qa[question_text] = " ".join(user_answers)
         
         # Only include chapters with answers
         if chapter_qa:
@@ -425,16 +425,15 @@ def export_text():
             chapter_qa[q] = data.get("answer", "")
         
         # Also check conversation
-        conversation = st.session_state.chapter_conversations.get(chapter_id, {})
-        if conversation:
-            for question_text, q_conversation in conversation.items():
-                if question_text not in chapter_qa:
-                    user_answers = []
-                    for msg in q_conversation:
-                        if msg["role"] == "user":
-                            user_answers.append(msg["content"])
-                    if user_answers:
-                        chapter_qa[question_text] = " ".join(user_answers)
+        conversations = st.session_state.chapter_conversations.get(chapter_id, {})
+        for question_text, conversation in conversations.items():
+            if question_text not in chapter_qa:
+                user_answers = []
+                for msg in conversation:
+                    if msg["role"] == "user":
+                        user_answers.append(msg["content"])
+                if user_answers:
+                    chapter_qa[question_text] = " ".join(user_answers)
         
         # Only include chapters with answers
         if chapter_qa:
@@ -466,12 +465,12 @@ def export_text():
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Clean header with logo - COMPACT
+# Clean header with logo - PROPER SPACING
 st.markdown(f"""
 <div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
-    <h2 style="margin: 0;">LifeStory AI</h2>
-    <p style="font-size: 0.9rem; color: #666; margin: 0;">Preserve Your Legacy • Share Your Story</p>
+    <h2 style="margin: 0; line-height: 1.2;">LifeStory AI</h2>
+    <p style="font-size: 0.9rem; color: #666; margin: 0; line-height: 1.2;">Preserve Your Legacy • Share Your Story</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -706,11 +705,28 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Get conversation for current question - CHANGED: Each question has its own conversation
+# Get conversation for current question - FIXED with backward compatibility
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Initialize conversations dictionary structure if needed
+# Handle backward compatibility: if chapter_conversations[chapter_id] is a list, convert to dict
+if current_chapter_id in st.session_state.chapter_conversations:
+    if isinstance(st.session_state.chapter_conversations[current_chapter_id], list):
+        # Convert old list format to new dict format
+        old_conversation = st.session_state.chapter_conversations[current_chapter_id]
+        st.session_state.chapter_conversations[current_chapter_id] = {}
+        # Try to find which question this was for
+        for msg in old_conversation:
+            if "Let's start with:" in msg.get("content", ""):
+                question_match = msg["content"].split("Let's start with:")[-1].strip().strip('**')
+                if question_match:
+                    st.session_state.chapter_conversations[current_chapter_id][question_match] = old_conversation
+                    break
+        # If we couldn't determine, use current question
+        if not st.session_state.chapter_conversations[current_chapter_id]:
+            st.session_state.chapter_conversations[current_chapter_id][current_question_text] = old_conversation
+
+# Ensure chapter_conversations[chapter_id] exists and is a dict
 if current_chapter_id not in st.session_state.chapter_conversations:
     st.session_state.chapter_conversations[current_chapter_id] = {}
 
