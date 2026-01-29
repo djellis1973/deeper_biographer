@@ -4,6 +4,7 @@ from datetime import datetime
 from openai import OpenAI
 import os
 import sqlite3
+import base64
 
 # ────────────────────────────────────────────────
 # CLEAN BRANDING WITH LOGO - FIXED SPACING
@@ -85,8 +86,321 @@ st.markdown(f"""
         font-style: italic;
         margin-top: 0.5rem;
     }}
+    
+    /* Speech recording button styles */
+    .speech-button {{
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        border: none;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }}
+    
+    .speech-button-primary {{
+        background-color: #4CAF50;
+        color: white;
+    }}
+    
+    .speech-button-primary:hover {{
+        background-color: #45a049;
+    }}
+    
+    .speech-button-recording {{
+        background-color: #f44336;
+        color: white;
+        animation: pulse 1.5s infinite;
+    }}
+    
+    @keyframes pulse {{
+        0% {{ opacity: 1; }}
+        50% {{ opacity: 0.7; }}
+        100% {{ opacity: 1; }}
+    }}
+    
+    .speech-status {{
+        font-size: 0.9rem;
+        padding: 0.5rem;
+        border-radius: 5px;
+        margin-top: 0.5rem;
+        display: none;
+    }}
+    
+    .speech-status-listening {{
+        background-color: #e8f5e8;
+        border-left: 4px solid #4CAF50;
+        display: block;
+    }}
+    
+    .speech-status-processing {{
+        background-color: #fff3e0;
+        border-left: 4px solid #ff9800;
+        display: block;
+    }}
+    
+    .speech-status-error {{
+        background-color: #ffebee;
+        border-left: 4px solid #f44336;
+        display: block;
+    }}
+    
+    .speech-preview {{
+        background-color: #f9f9f9;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+        margin-top: 1rem;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }}
+    
+    .speech-controls {{
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }}
+    
+    .mic-icon {{
+        font-size: 1.2rem;
+    }}
 </style>
 """, unsafe_allow_html=True)
+
+# JavaScript for Speech Recognition
+SPEECH_JS = """
+<script>
+// Speech recognition setup
+let recognition = null;
+let isRecording = false;
+let finalTranscript = '';
+let interimTranscript = '';
+
+// Initialize speech recognition
+function initSpeechRecognition() {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'en-GB'; // UK English
+        
+        recognition.onstart = function() {
+            isRecording = true;
+            updateRecordingStatus(true);
+            updateStatus('listening', 'Listening... Speak now.');
+        };
+        
+        recognition.onresult = function(event) {
+            interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+            
+            // Update preview
+            updatePreview(finalTranscript + interimTranscript);
+            
+            // Auto-stop after silence (if using continuous: false, this happens automatically)
+            if (interimTranscript.includes('.') || interimTranscript.includes('?')) {
+                // Could add auto-stop logic here
+            }
+        };
+        
+        recognition.onerror = function(event) {
+            console.error('Speech recognition error:', event.error);
+            updateStatus('error', 'Error: ' + event.error);
+            stopRecording();
+        };
+        
+        recognition.onend = function() {
+            isRecording = false;
+            updateRecordingStatus(false);
+            
+            if (finalTranscript.trim()) {
+                updateStatus('processing', 'Processing speech...');
+                // Submit the final transcript after a short delay
+                setTimeout(() => {
+                    submitTranscript(finalTranscript);
+                }, 500);
+            } else {
+                updateStatus('error', 'No speech detected. Please try again.');
+            }
+        };
+        
+        return true;
+    } else {
+        console.error('Speech recognition not supported');
+        updateStatus('error', 'Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
+        return false;
+    }
+}
+
+// Start recording
+function startRecording() {
+    if (!recognition && !initSpeechRecognition()) {
+        return;
+    }
+    
+    finalTranscript = '';
+    interimTranscript = '';
+    updatePreview('');
+    
+    try {
+        recognition.start();
+    } catch (error) {
+        console.error('Failed to start recording:', error);
+        updateStatus('error', 'Failed to start recording. Please try again.');
+    }
+}
+
+// Stop recording
+function stopRecording() {
+    if (recognition && isRecording) {
+        try {
+            recognition.stop();
+        } catch (error) {
+            console.error('Error stopping recording:', error);
+        }
+    }
+}
+
+// Update recording status UI
+function updateRecordingStatus(recording) {
+    const button = document.getElementById('speech-button');
+    const status = document.getElementById('speech-status');
+    
+    if (button) {
+        if (recording) {
+            button.innerHTML = '<span class="mic-icon">●</span> Stop Recording';
+            button.className = 'speech-button speech-button-recording';
+        } else {
+            button.innerHTML = '<span class="mic-icon">🎤</span> Speak Your Answer';
+            button.className = 'speech-button speech-button-primary';
+        }
+    }
+}
+
+// Update status message
+function updateStatus(type, message) {
+    const status = document.getElementById('speech-status');
+    if (status) {
+        status.className = 'speech-status speech-status-' + type;
+        status.textContent = message;
+        status.style.display = 'block';
+    }
+}
+
+// Update preview text
+function updatePreview(text) {
+    const preview = document.getElementById('speech-preview');
+    if (preview) {
+        if (text.trim()) {
+            preview.textContent = text;
+            preview.style.display = 'block';
+        } else {
+            preview.style.display = 'none';
+        }
+    }
+}
+
+// Submit transcript to Streamlit
+function submitTranscript(transcript) {
+    // Clean up the transcript
+    const cleanTranscript = transcript.trim();
+    
+    if (cleanTranscript) {
+        // Send to Streamlit
+        const data = {
+            transcript: cleanTranscript
+        };
+        
+        // Use Streamlit's setComponentValue to pass data back
+        if (window.parent) {
+            window.parent.postMessage({
+                type: 'streamlit:setComponentValue',
+                data: data
+            }, '*');
+        }
+        
+        // Reset after submission
+        finalTranscript = '';
+        interimTranscript = '';
+        updatePreview('');
+        updateStatus('listening', 'Answer submitted!');
+        
+        // Hide status after delay
+        setTimeout(() => {
+            const status = document.getElementById('speech-status');
+            if (status) {
+                status.style.display = 'none';
+            }
+        }, 2000);
+    }
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Check for speech recognition support
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+        updateStatus('error', 'Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
+    }
+});
+
+// Handle keyboard shortcuts
+document.addEventListener('keydown', function(event) {
+    // Spacebar to start/stop recording (when focused)
+    if (event.code === 'Space' && !event.target.matches('input, textarea')) {
+        event.preventDefault();
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    }
+});
+</script>
+"""
+
+# HTML for speech interface
+SPEECH_HTML = """
+<div style="margin: 1rem 0;">
+    <div style="text-align: center;">
+        <button id="speech-button" class="speech-button speech-button-primary" onclick="startRecording()">
+            <span class="mic-icon">🎤</span> Speak Your Answer
+        </button>
+        <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+            Press Spacebar to start/stop • Speak clearly in UK English
+        </div>
+    </div>
+    
+    <div id="speech-status" class="speech-status"></div>
+    
+    <div id="speech-preview" class="speech-preview" style="display: none;">
+        <strong>Preview:</strong><br>
+        <span id="preview-text"></span>
+    </div>
+    
+    <div class="speech-controls" style="justify-content: center; margin-top: 1rem;">
+        <button onclick="startRecording()" class="speech-button speech-button-primary" style="padding: 0.4rem 0.8rem;">
+            <span class="mic-icon">🎤</span> Start
+        </button>
+        <button onclick="stopRecording()" class="speech-button" style="background-color: #666; color: white; padding: 0.4rem 0.8rem;">
+            <span class="mic-icon">⏹️</span> Stop
+        </button>
+        <button onclick="submitTranscript(finalTranscript)" class="speech-button" style="background-color: #2196F3; color: white; padding: 0.4rem 0.8rem;">
+            <span class="mic-icon">✓</span> Submit
+        </button>
+    </div>
+</div>
+"""
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
@@ -137,37 +451,6 @@ CHAPTERS = [
     }
 ]
 
-# Professional Ghostwriter Response Templates
-PROFESSIONAL_TEMPLATES = {
-    "scene_unpacking": {
-        "structure": [
-            "Acknowledge with purpose (1 sentence)",
-            "Sensory invitation",
-            "Character lens",
-            "Open-ended prompt"
-        ],
-        "example": "Kitchens often hold family history in their walls. Let's step into that space properly. What's the first smell that comes to mind? The feel of the worktop? And crucially—what version of yourself lived in that kitchen that doesn't exist elsewhere?"
-    },
-    "time_contrast": {
-        "structure": [
-            "Anchor in significance",
-            "Then/now bridge",
-            "Lost/found inquiry",
-            "Narrative positioning"
-        ],
-        "example": "Such moments often mark a boundary between who we were and who we become. Immediately after, what story did you tell yourself about what it meant? And now, with distance—what different understanding has emerged?"
-    },
-    "unspoken_rules": {
-        "structure": [
-            "Name the ecosystem",
-            "Invite revelation",
-            "Consequences inquiry",
-            "Personal navigation"
-        ],
-        "example": "Every household has its particular architecture of expectations. What was the most important rule that was never actually said aloud? And how did you learn to move within—or around—that structure?"
-    }
-}
-
 # Initialize database
 def init_db():
     conn = sqlite3.connect('life_story.db')
@@ -196,6 +479,8 @@ if "responses" not in st.session_state:
     st.session_state.editing = None  # (chapter_id, question_text, message_index)
     st.session_state.edit_text = ""
     st.session_state.ghostwriter_mode = True  # New: Professional mode toggle
+    st.session_state.speech_input = ""  # New: Store speech input
+    st.session_state.show_speech = True  # New: Control speech UI visibility
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -312,6 +597,7 @@ def clear_all():
     st.session_state.current_question = 0
     st.session_state.editing = None
     st.session_state.edit_text = ""
+    st.session_state.speech_input = ""
     
     # Clear database
     try:
@@ -430,7 +716,42 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Export functions - FIXED to include ALL chapters and ALL conversation answers
+# Post-processing for speech-to-text (basic cleanup)
+def clean_speech_text(text):
+    """Clean up speech recognition output"""
+    if not text:
+        return text
+    
+    # Remove common speech artifacts
+    text = text.strip()
+    
+    # Fix common speech recognition errors
+    replacements = {
+        "uh": "",
+        "um": "",
+        "er": "",
+        "ah": "",
+        "like, ": "",
+        "you know, ": "",
+        "sort of ": "",
+        "kind of ": "",
+        "  ": " "  # Double spaces
+    }
+    
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    
+    # Capitalize first letter
+    if text and len(text) > 0:
+        text = text[0].upper() + text[1:] if text[0].isalpha() else text
+    
+    # Ensure ends with punctuation if it doesn't
+    if text and text[-1] not in ['.', '!', '?', ',', ';', ':']:
+        text += '.'
+    
+    return text
+
+# Export functions
 def export_json():
     """Export all responses as JSON - includes ALL chapters and ALL conversation answers"""
     export_data = {
@@ -632,6 +953,9 @@ st.markdown(f"""
 
 st.caption("A professional guided journey through your life story")
 
+# Inject JavaScript for speech recognition
+st.markdown(SPEECH_JS, unsafe_allow_html=True)
+
 # Load user data on startup
 if st.session_state.user_id != "Guest":
     load_user_data()
@@ -650,6 +974,7 @@ with st.sidebar:
         st.session_state.current_question = 0
         st.session_state.editing = None
         st.session_state.edit_text = ""
+        st.session_state.speech_input = ""
         
         # Reinitialize for new user
         for chapter in CHAPTERS:
@@ -677,6 +1002,17 @@ with st.sidebar:
     
     if ghostwriter_mode != st.session_state.ghostwriter_mode:
         st.session_state.ghostwriter_mode = ghostwriter_mode
+        st.rerun()
+    
+    # Speech Input Toggle
+    show_speech = st.toggle(
+        "Show Speech Input",
+        value=st.session_state.show_speech,
+        help="Show speech-to-text interface for voice input"
+    )
+    
+    if show_speech != st.session_state.show_speech:
+        st.session_state.show_speech = show_speech
         st.rerun()
     
     if st.session_state.ghostwriter_mode:
@@ -839,6 +1175,7 @@ with st.sidebar:
     
     st.divider()
     st.caption("Built with DeepSeek AI • Your data is saved locally")
+    st.caption("Speech recognition uses browser's built-in Web Speech API")
 
 # Main content area - FULL WIDTH
 # Get current chapter
@@ -896,6 +1233,29 @@ st.markdown(f"""
     {current_question_text}
 </div>
 """, unsafe_allow_html=True)
+
+# Show speech interface if enabled
+if st.session_state.show_speech:
+    st.markdown("### 🎤 Speak Your Answer")
+    st.markdown("""
+    <div style="background-color: #f0f7ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50; margin-bottom: 1rem;">
+        <strong>Voice Input Instructions:</strong>
+        <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
+            <li>Click "Speak Your Answer" or press <strong>Spacebar</strong> to start recording</li>
+            <li>Speak clearly in UK English for best results</li>
+            <li>Click Stop or press Spacebar again when finished</li>
+            <li>Review your text before submitting</li>
+            <li>Works best in Chrome, Edge, or Safari browsers</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Speech interface
+    st.markdown(SPEECH_HTML, unsafe_allow_html=True)
+    
+    # Manual text input option
+    st.markdown("---")
+    st.markdown("### ✏️ Or Type Manually")
 
 # Get conversation for current question
 current_chapter_id = current_chapter["id"]
@@ -987,9 +1347,34 @@ else:
                             st.session_state.edit_text = message["content"]
                             st.rerun()
 
+# Check for speech input from JavaScript
+if st.session_state.speech_input:
+    # Clean the speech input
+    cleaned_text = clean_speech_text(st.session_state.speech_input)
+    
+    # Show preview and confirmation
+    st.info(f"**Speech recognized:** {cleaned_text}")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Use This Text", type="primary"):
+            user_input = cleaned_text
+            # Process as regular input
+            st.session_state.speech_input = ""  # Clear after use
+    with col2:
+        if st.button("❌ Discard"):
+            st.session_state.speech_input = ""
+            st.rerun()
+
 # Chat input - ALWAYS SHOW when not editing
 if st.session_state.editing is None:
     user_input = st.chat_input("Type your answer here...")
+    
+    # Check if we should use speech input instead
+    if not user_input and st.session_state.speech_input:
+        user_input = clean_speech_text(st.session_state.speech_input)
+        # Clear after use
+        st.session_state.speech_input = ""
     
     if user_input:
         current_chapter_id = current_chapter["id"]
@@ -1051,4 +1436,12 @@ if st.session_state.editing is None:
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         st.rerun()
 
-
+# Note about speech recognition support
+st.markdown("""
+<div style="font-size: 0.8rem; color: #666; margin-top: 2rem; padding: 1rem; background-color: #f9f9f9; border-radius: 5px;">
+    <strong>Note about Speech Recognition:</strong> This feature uses your browser's built-in Web Speech API. 
+    It works best in Chrome, Edge, and Safari on desktop or mobile. 
+    The recognition happens entirely in your browser—no audio is sent to any server. 
+    Accuracy may vary based on microphone quality and background noise.
+</div>
+""", unsafe_allow_html=True)
