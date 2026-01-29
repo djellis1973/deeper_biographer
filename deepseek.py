@@ -1235,75 +1235,77 @@ if st.session_state.editing is None:
         
         st.rerun()
 
-# Simple JavaScript for speech recognition (as fallback)
-st.markdown("""
-<script>
-// Simple speech recognition example
-function startRecordingSimple() {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-        alert('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
-        return;
-    }
-    
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    
-    recognition.lang = 'en-GB';
-    recognition.interimResults = false;
-    
-    recognition.onresult = function(event) {
-        const transcript = event.results[0][0].transcript;
-        // Copy to clipboard as a simple way to get text back
-        navigator.clipboard.writeText(transcript).then(function() {
-            alert('Speech copied to clipboard! Paste it in the text area above.');
-        });
-    };
-    
-    recognition.start();
-}
-</script>
-""", unsafe_allow_html=True)
-
-# Note about speech recognition support
-st.markdown("""
-<div style="font-size: 0.8rem; color: #666; margin-top: 2rem; padding: 1rem; background-color: #f9f9f9; border-radius: 5px;">
-    <strong>Note about Speech Recognition:</strong> For the best experience:
-    <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-        <li>Use <strong>Chrome, Edge, or Safari</strong> for best speech recognition</li>
-        <li>On mobile: Use <strong>Chrome for Android</strong> or <strong>Safari for iOS</strong></li>
-        <li>Grant microphone permissions when prompted</li>
-        <li>Speak clearly in a quiet environment</li>
-        <li>Alternative: Use your device's built-in speech-to-text, then copy & paste</li>
-    </ul>
-</div>
-""", unsafe_allow_html=True)
-
-# Add instructions for using device speech recognition
-with st.expander("📱 Mobile & Device Speech Recognition Tips"):
+# Simple JavaScript for speech recognition (as fallback) - ONLY SHOW WHEN SPEECH IS ENABLED
+if st.session_state.show_speech:
     st.markdown("""
-    ### Using Built-in Speech Recognition:
-    
-    **On iPhone/iPad:**
-    1. Tap the microphone button on your keyboard
-    2. Speak your answer
-    3. Tap Done, then copy the text
-    4. Paste it in the text area above
-    
-    **On Android:**
-    1. Tap the microphone button on Gboard or your keyboard
-    2. Speak your answer
-    3. Copy the text and paste it above
-    
-    **On Windows/Mac:**
-    1. Press **Windows key + H** (Windows) or enable Dictation (Mac)
-    2. Speak your answer
-    3. Copy and paste the text
-    
-    ### Browser Compatibility:
-    - ✅ **Chrome** - Best support, works on desktop & mobile
-    - ✅ **Edge** - Good support
-    - ✅ **Safari** - Works on Mac & iOS
-    - ⚠️ **Firefox** - Limited support
-    
-    The speech recognition happens in your browser—no audio is sent to any server.
-    """)
+    <script>
+    // Simple speech recognition example
+    function startRecordingSimple() {
+        if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+            alert('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
+            return;
+        }
+        
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        
+        recognition.lang = 'en-GB';
+        recognition.interimResults = false;
+        
+        recognition.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            // Copy to clipboard as a simple way to get text back
+            navigator.clipboard.writeText(transcript).then(function() {
+                alert('Speech copied to clipboard! Paste it in the text area above.');
+            });
+        };
+        
+        recognition.start();
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
+    # Note about speech recognition support - ONLY SHOW WHEN SPEECH IS ENABLED
+    st.markdown("""
+    <div style="font-size: 0.8rem; color: #666; margin-top: 2rem; padding: 1rem; background-color: #f9f9f9; border-radius: 5px;">
+        <strong>Note about Speech Recognition:</strong> For the best experience:
+        <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
+            <li>Use <strong>Chrome, Edge, or Safari</strong> for best speech recognition</li>
+            <li>On mobile: Use <strong>Chrome for Android</strong> or <strong>Safari for iOS</strong></li>
+            <li>Grant microphone permissions when prompted</li>
+            <li>Speak clearly in a quiet environment</li>
+            <li>Alternative: Use your device's built-in speech-to-text, then copy & paste</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Add instructions for using device speech recognition - ONLY SHOW WHEN SPEECH IS ENABLED
+    with st.expander("📱 Mobile & Device Speech Recognition Tips"):
+        st.markdown("""
+        ### Using Built-in Speech Recognition:
+        
+        **On iPhone/iPad:**
+        1. Tap the microphone button on your keyboard
+        2. Speak your answer
+        3. Tap Done, then copy the text
+        4. Paste it in the text area above
+        
+        **On Android:**
+        1. Tap the microphone button on Gboard or your keyboard
+        2. Speak your answer
+        3. Copy the text and paste it above
+        
+        **On Windows/Mac:**
+        1. Press **Windows key + H** (Windows) or enable Dictation (Mac)
+        2. Speak your answer
+        3. Copy and paste the text
+        
+        ### Browser Compatibility:
+        - ✅ **Chrome** - Best support, works on desktop & mobile
+        - ✅ **Edge** - Good support
+        - ✅ **Safari** - Works on Mac & iOS
+        - ⚠️ **Firefox** - Limited support
+        
+        The speech recognition happens in your browser—no audio is sent to any server.
+        """)
+
