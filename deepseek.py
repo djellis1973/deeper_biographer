@@ -678,3 +678,4 @@ if user_input:
         # All questions answered
         st.session_state.responses[current_chapter_id]["completed"] = True
         st.rerun()
+
