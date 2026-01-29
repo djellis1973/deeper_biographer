@@ -10,7 +10,7 @@ import sqlite3
 # ────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Clean CSS - just adds logo and subtle styling
+# Clean CSS
 st.markdown(f"""
 <style>
     .main-header {{
@@ -24,6 +24,14 @@ st.markdown(f"""
         height: 100px;
         border-radius: 50%;
         object-fit: cover;
+        margin-bottom: 1rem;
+    }}
+    
+    .question-box {{
+        background-color: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border-left: 4px solid #4a5568;
         margin-bottom: 1rem;
     }}
 </style>
@@ -93,23 +101,24 @@ def init_db():
 
 init_db()
 
-# Initialize session state - SIMPLIFIED VERSION
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# Initialize session state
+if "current_chapter" not in st.session_state:
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
     st.session_state.responses = {}
-    st.session_state.interview_started = False
     st.session_state.user_id = "Guest"
+    st.session_state.chapter_conversations = {}  # NEW: Separate conversations per chapter
     
-    # Initialize response structure
+    # Initialize response structure and conversations
     for chapter in CHAPTERS:
-        st.session_state.responses[chapter["id"]] = {
+        chapter_id = chapter["id"]
+        st.session_state.responses[chapter_id] = {
             "title": chapter["title"],
             "questions": {},
             "summary": "",
             "completed": False
         }
+        st.session_state.chapter_conversations[chapter_id] = []  # Empty conversation for each chapter
 
 # Load user data from database
 def load_user_data():
@@ -203,6 +212,9 @@ def clear_chapter(chapter_id):
         st.session_state.responses[chapter_id]["completed"] = False
         st.session_state.responses[chapter_id]["summary"] = ""
     
+    # Clear conversation for this chapter
+    st.session_state.chapter_conversations[chapter_id] = []
+    
     # Clear from database
     try:
         conn = sqlite3.connect('life_story.db')
@@ -222,17 +234,17 @@ def clear_all():
     
     # Clear session state
     for chapter in CHAPTERS:
-        st.session_state.responses[chapter["id"]] = {
+        chapter_id = chapter["id"]
+        st.session_state.responses[chapter_id] = {
             "title": chapter["title"],
             "questions": {},
             "summary": "",
             "completed": False
         }
+        st.session_state.chapter_conversations[chapter_id] = []
     
-    st.session_state.messages = []
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
-    st.session_state.interview_started = False
     
     # Clear database
     try:
@@ -252,31 +264,21 @@ def get_system_prompt():
     current_chapter = CHAPTERS[st.session_state.current_chapter]
     current_question = current_chapter["questions"][st.session_state.current_question]
     
-    return f"""You are a warm, professional biographer helping the user craft a compelling, honest autobiography. 
+    return f"""You are a warm, professional biographer helping document a life story.
 
-CURRENT CHAPTER: Chapter {current_chapter['id']}: {current_chapter['title']}
+CURRENT CHAPTER: {current_chapter['title']}
+CURRENT QUESTION: "{current_question}"
 
-We are currently exploring: "{current_question}"
+Please:
+1. Listen actively to their response
+2. Acknowledge it warmly (1-2 sentences)
+3. Ask ONE natural follow-up question if appropriate
+4. Keep the conversation flowing naturally
 
-CONVERSATION RULES:
-1. Ask this ONE main question at a time
-2. After the user answers, provide a warm, empathetic reflection (1-2 sentences)
-3. Optionally ask ONE natural follow-up question to draw out more detail
-4. When the topic feels explored, gently transition to the next question
-5. At the end of each chapter, provide a brief summary
+Tone: Kind, curious, professional
+Goal: Draw out authentic, detailed memories
 
-CHAPTER PROGRESS (for your reference only):
-- Chapter 1: Childhood (7 questions)
-- Chapter 2: Family & Relationships (5 questions)
-- Chapter 3: Education & Growing Up (6 questions)
-
-SPECIAL FEATURES (mention occasionally):
-- "You can mark any answer with a privacy level if you wish: Private, Family, or Public"
-- "Feel free to add photos or voice notes to enrich this memory"
-- "We can revisit or skip any question anytime"
-
-Tone: Warm, empathetic, curious, slightly literary. Focus on drawing out vivid details and authentic emotions.
-Always keep the user in control of the pace and direction."""
+Focus ONLY on the current question. Don't reference previous chapters."""
 
 # Generate chapter summary
 def generate_chapter_summary(chapter_id):
@@ -292,305 +294,3 @@ Summary:"""
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": "You are a professional biographer summarizing life story chapters."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500
-        )
-        return response.choices[0].message.content
-    except:
-        return "Summary pending completion of chapter."
-
-# Export functions
-def export_json():
-    export_data = {
-        "metadata": {
-            "project": "DeeperVault Legacy Interview",
-            "export_date": datetime.now().isoformat(),
-            "chapters_completed": [c["id"] for c in CHAPTERS if st.session_state.responses[c["id"]]["completed"]],
-            "total_questions_answered": sum(len(st.session_state.responses[c["id"]]["questions"]) for c in CHAPTERS)
-        },
-        "chapters": st.session_state.responses
-    }
-    return json.dumps(export_data, indent=2)
-
-def export_text():
-    text = "MY LIFE STORY\n"
-    text += "=" * 50 + "\n\n"
-    
-    for chapter_id in sorted(st.session_state.responses.keys()):
-        chapter = st.session_state.responses[chapter_id]
-        if not chapter["questions"]:
-            continue
-            
-        text += f"CHAPTER {chapter_id}: {chapter['title']}\n"
-        text += "-" * 40 + "\n\n"
-        
-        for question, data in chapter["questions"].items():
-            text += f"Q: {question}\n"
-            text += f"A: {data['answer']}\n\n"
-        
-        if chapter.get("summary"):
-            text += f"SUMMARY:\n{chapter['summary']}\n\n"
-        
-        text += "\n" + "=" * 50 + "\n\n"
-    
-    return text
-
-# ────────────────────────────────────────────────
-# STREAMLIT UI
-# ────────────────────────────────────────────────
-st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
-
-# Clean header with logo
-st.markdown(f"""
-<div class="main-header">
-    <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
-    <h1>LifeStory AI</h1>
-    <p>Preserve Your Legacy • Share Your Story</p>
-</div>
-""", unsafe_allow_html=True)
-
-st.caption("A guided journey through your life story")
-
-# Sidebar for navigation and controls
-with st.sidebar:
-    st.header("👤 Your Profile")
-    
-    new_user_id = st.text_input("Your Name:", value=st.session_state.user_id)
-    
-    if new_user_id != st.session_state.user_id:
-        st.session_state.user_id = new_user_id
-        st.session_state.messages = []
-        st.session_state.interview_started = False
-        load_user_data()
-        st.rerun()
-    
-    st.divider()
-    
-    # Management Section
-    st.header("⚙️ Management")
-    
-    # Clear buttons
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Clear Current Chapter", type="secondary"):
-            clear_chapter(CHAPTERS[st.session_state.current_chapter]["id"])
-            st.session_state.current_question = 0
-            st.rerun()
-    
-    with col2:
-        if st.button("Clear All", type="secondary"):
-            clear_all()
-            st.rerun()
-    
-    st.divider()
-    
-    st.header("📖 Chapter Progress")
-    
-    # Chapter progress tracker with management
-    for i, chapter in enumerate(CHAPTERS):
-        status = "✅" if st.session_state.responses[chapter["id"]]["completed"] else "🔄" if i == st.session_state.current_chapter else "⏳"
-        
-        if st.button(f"{status} Chapter {chapter['id']}: {chapter['title']}", 
-                    key=f"select_{i}",
-                    use_container_width=True):
-            st.session_state.current_chapter = i
-            st.session_state.current_question = 0
-            st.rerun()
-        
-        # Show progress within chapter
-        if st.session_state.responses[chapter["id"]]["questions"]:
-            progress = len(st.session_state.responses[chapter["id"]]["questions"]) / len(chapter["questions"])
-            st.progress(progress)
-            st.caption(f"{len(st.session_state.responses[chapter['id']]['questions'])}/{len(chapter['questions'])} questions answered")
-    
-    st.divider()
-    
-    # Navigation controls
-    st.subheader("Navigation")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Previous Chapter", disabled=st.session_state.current_chapter == 0):
-            st.session_state.current_chapter = max(0, st.session_state.current_chapter - 1)
-            st.session_state.current_question = 0
-            st.rerun()
-    with col2:
-        if st.button("Next Chapter →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1):
-            st.session_state.current_chapter = min(len(CHAPTERS)-1, st.session_state.current_chapter + 1)
-            st.session_state.current_question = 0
-            st.rerun()
-    
-    # Jump to specific chapter
-    chapter_options = [f"Chapter {c['id']}: {c['title']}" for c in CHAPTERS]
-    selected_chapter = st.selectbox("Jump to chapter:", chapter_options, index=st.session_state.current_chapter)
-    if chapter_options.index(selected_chapter) != st.session_state.current_chapter:
-        st.session_state.current_chapter = chapter_options.index(selected_chapter)
-        st.session_state.current_question = 0
-        st.rerun()
-    
-    st.divider()
-    
-    # Export section
-    st.subheader("Export Options")
-    if st.button("📥 Export Current Progress"):
-        if st.session_state.responses:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="Download as JSON",
-                    data=export_json(),
-                    file_name=f"autobiography_{datetime.now().date()}.json",
-                    mime="application/json"
-                )
-            with col2:
-                st.download_button(
-                    label="Download as Text",
-                    data=export_text(),
-                    file_name=f"manuscript_{datetime.now().date()}.txt",
-                    mime="text/plain"
-                )
-        else:
-            st.warning("No responses to export yet.")
-    
-    st.divider()
-    st.caption("Built with DeepSeek AI • Based on DeeperVault UK Legacy Interview")
-
-# Main chat interface
-col1, col2 = st.columns([3, 1])
-
-with col1:
-    # Display current chapter info
-    current_chapter = CHAPTERS[st.session_state.current_chapter]
-    current_question = current_chapter["questions"][st.session_state.current_question]
-    
-    # Show chapter header and current question
-    st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
-    
-    # Show progress
-    answered = len(st.session_state.responses[current_chapter["id"]]["questions"])
-    total = len(current_chapter["questions"])
-    st.progress(answered / total if total > 0 else 0)
-    st.caption(f"Question {st.session_state.current_question + 1} of {total}")
-    
-    # Display current question prominently
-    st.markdown(f"**{current_question}**")
-    st.write("---")
-    
-    # Show existing answer if already answered
-    if current_question in st.session_state.responses[current_chapter["id"]]["questions"]:
-        existing_answer = st.session_state.responses[current_chapter["id"]]["questions"][current_question]["answer"]
-        with st.expander("📝 Your previous answer (click to edit)", expanded=False):
-            st.markdown(existing_answer)
-            col_a, col_b = st.columns([3, 1])
-            with col_b:
-                if st.button("🗑️ Delete", key=f"delete_{current_chapter['id']}_{current_question}"):
-                    delete_response(current_chapter["id"], current_question)
-                    st.rerun()
-    
-    # Display conversation for current question
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-    
-    # Auto-start if new session
-    if not st.session_state.interview_started and len(st.session_state.messages) == 0:
-        welcome_message = f"""Hello **{st.session_state.user_id}**! 
-
-**{current_question}**"""
-        
-        st.session_state.messages.append({"role": "assistant", "content": welcome_message})
-        st.session_state.interview_started = True
-        st.rerun()
-
-with col2:
-    # Current chapter overview
-    st.subheader("Current Chapter Questions")
-    for i, question in enumerate(current_chapter["questions"]):
-        status = "✅" if question in st.session_state.responses[current_chapter["id"]]["questions"] else "●"
-        color = "green" if question in st.session_state.responses[current_chapter["id"]]["questions"] else "gray"
-        is_current = i == st.session_state.current_question
-        
-        if is_current:
-            st.markdown(f"<span style='color:blue; font-weight:bold;'>▶️ {question[:60]}...</span>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<span style='color:{color}'>{status} {question[:60]}...</span>", unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # Review and delete section
-    with st.expander("📋 Review & Manage Answers"):
-        if st.session_state.responses[current_chapter["id"]]["questions"]:
-            for question, data in st.session_state.responses[current_chapter["id"]]["questions"].items():
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    st.caption(f"Q: {question[:40]}...")
-                with col_b:
-                    if st.button("🗑️", key=f"quick_delete_{current_chapter['id']}_{question}"):
-                        delete_response(current_chapter["id"], question)
-                        st.rerun()
-        else:
-            st.caption("No answers yet")
-    
-    st.divider()
-    
-    # Quick actions
-    if st.button("✅ Complete Chapter", type="primary"):
-        # Generate summary
-        summary = generate_chapter_summary(current_chapter["id"])
-        st.session_state.responses[current_chapter["id"]]["summary"] = summary
-        st.session_state.responses[current_chapter["id"]]["completed"] = True
-        
-        # Move to next chapter if available
-        if st.session_state.current_chapter < len(CHAPTERS) - 1:
-            st.session_state.current_chapter += 1
-            st.session_state.current_question = 0
-        
-        st.success(f"Chapter {current_chapter['id']} completed!")
-        st.rerun()
-
-# Chat input
-if prompt := st.chat_input("Type your answer here..."):
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # Store the response
-    save_response(current_chapter["id"], current_question, prompt)
-    
-    # Move to next question in current chapter
-    if st.session_state.current_question < len(current_chapter["questions"]) - 1:
-        st.session_state.current_question += 1
-        next_question = current_chapter["questions"][st.session_state.current_question]
-        
-        # Generate AI response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    response = client.chat.completions.create(
-                        model="gpt-4-turbo-preview",
-                        messages=[
-                            {"role": "system", "content": get_system_prompt()},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.7,
-                        max_tokens=250
-                    )
-                    
-                    ai_response = response.choices[0].message.content
-                    st.markdown(ai_response)
-                    st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                    
-                except Exception as e:
-                    st.error(f"Error generating response: {e}")
-                    fallback_response = f"Thank you for sharing that. Now, let's talk about: {next_question}"
-                    st.markdown(fallback_response)
-                    st.session_state.messages.append({"role": "assistant", "content": fallback_response})
-        
-        st.rerun()
-    else:
-        # All questions answered
-        st.session_state.responses[current_chapter["id"]]["completed"] = True
-        st.success(f"Chapter {current_chapter['id']} completed!")
-        st.rerun()
