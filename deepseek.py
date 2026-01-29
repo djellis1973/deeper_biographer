@@ -35,65 +35,22 @@ st.markdown(f"""
         margin-bottom: 1rem;
     }}
     
-    .chat-history {{
-        min-height: 400px;
-        max-height: 600px;
-        overflow-y: auto;
-        padding: 1rem;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        background-color: #fafafa;
+    /* Fix for chat layout */
+    .stChatMessage {{
+        padding: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
     }}
     
-    .ai-message {{
-        background-color: #e3f2fd;
-        padding: 1rem;
-        border-radius: 15px 15px 15px 0;
-        margin-bottom: 1rem;
-        max-width: 80%;
-        margin-right: auto;
-    }}
-    
-    .user-message {{
-        background-color: #dcf8c6;
-        padding: 1rem;
-        border-radius: 15px 15px 0 15px;
-        margin-bottom: 1rem;
-        max-width: 80%;
-        margin-left: auto;
-        position: relative;
-    }}
-    
-    .user-message-with-edit {{
+    .user-message-container {{
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
+        width: 100%;
     }}
     
-    .message-content {{
+    .message-text {{
         flex: 1;
-    }}
-    
-    .edit-button {{
-        margin-left: 10px;
-        background: none;
-        border: none;
-        color: #666;
-        cursor: pointer;
-        font-size: 0.9rem;
-    }}
-    
-    .edit-button:hover {{
-        color: #333;
-    }}
-    
-    .edit-container {{
-        background-color: #fff3cd;
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        border: 1px solid #ffeaa7;
+        min-width: 0;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -504,213 +461,6 @@ st.caption("A guided journey through your life story")
 if st.session_state.user_id != "Guest":
     load_user_data()
 
-# Create main layout
-col1, col2 = st.columns([3, 1])
-
-with col1:
-    # Get current chapter
-    current_chapter = CHAPTERS[st.session_state.current_chapter]
-    current_chapter_id = current_chapter["id"]
-    current_question_text = current_chapter["questions"][st.session_state.current_question]
-    
-    # Show chapter header
-    st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
-    
-    # Show progress
-    chapter_data = st.session_state.responses.get(current_chapter_id, {})
-    questions_answered = len(chapter_data.get("questions", {}))
-    total_questions = len(current_chapter["questions"])
-    
-    if total_questions > 0:
-        progress = questions_answered / total_questions
-        st.progress(min(progress, 1.0))
-        st.caption(f"Question {st.session_state.current_question + 1} of {total_questions}")
-    
-    # Show current question
-    st.markdown(f"""
-    <div class="question-box">
-        <h4 style="margin: 0;">{current_question_text}</h4>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Get conversation
-    conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
-    
-    # Auto-start conversation if empty
-    if not conversation:
-        welcome_message = f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"
-        st.session_state.chapter_conversations[current_chapter_id] = [{"role": "assistant", "content": welcome_message}]
-        conversation = st.session_state.chapter_conversations[current_chapter_id]
-        st.rerun()
-    
-    # Display conversation history using custom HTML (not st.chat_message)
-    st.markdown('<div class="chat-history">', unsafe_allow_html=True)
-    
-    for i, message in enumerate(conversation):
-        if message["role"] == "assistant":
-            st.markdown(f'<div class="ai-message">{message["content"]}</div>', unsafe_allow_html=True)
-        
-        elif message["role"] == "user":
-            is_editing = (st.session_state.editing == (current_chapter_id, i))
-            
-            if is_editing:
-                # Edit mode
-                st.markdown('<div class="edit-container">', unsafe_allow_html=True)
-                new_text = st.text_area(
-                    "Edit your answer:",
-                    value=st.session_state.edit_text,
-                    key=f"edit_area_{current_chapter_id}_{i}",
-                    label_visibility="collapsed"
-                )
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✓ Save", key=f"save_{current_chapter_id}_{i}", type="primary"):
-                        # Save the edited answer
-                        conversation[i]["content"] = new_text
-                        st.session_state.chapter_conversations[current_chapter_id] = conversation
-                        
-                        # Also save to database if this is the main question answer
-                        if i == 1:  # First user answer (right after welcome)
-                            save_response(current_chapter_id, current_question_text, new_text)
-                        
-                        st.session_state.editing = None
-                        st.rerun()
-                with col2:
-                    if st.button("✕ Cancel", key=f"cancel_{current_chapter_id}_{i}"):
-                        st.session_state.editing = None
-                        st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                # Normal display with edit button
-                st.markdown(f'''
-                <div class="user-message">
-                    <div class="user-message-with-edit">
-                        <div class="message-content">{message["content"]}</div>
-                        <button class="edit-button" onclick="window.editMessage({current_chapter_id}, {i})">✏️</button>
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)  # Close chat-history
-    
-    # JavaScript for edit button
-    st.markdown(f"""
-    <script>
-    function editMessage(chapter_id, message_index) {{
-        // This will trigger a Streamlit rerun with the editing state
-        const data = {{
-            chapter_id: chapter_id,
-            message_index: message_index
-        }};
-        
-        // Send data to Streamlit
-        const input = parent.document.getElementById('edit_trigger');
-        if (input) {{
-            input.value = JSON.stringify(data);
-            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-        }}
-    }}
-    
-    // Create hidden input for JavaScript to communicate with Streamlit
-    const input = document.createElement('input');
-    input.id = 'edit_trigger';
-    input.type = 'hidden';
-    document.body.appendChild(input);
-    </script>
-    """, unsafe_allow_html=True)
-    
-    # Check if JavaScript triggered an edit
-    edit_trigger = st.text_input("Edit trigger", key="edit_trigger", label_visibility="collapsed")
-    if edit_trigger:
-        try:
-            data = json.loads(edit_trigger)
-            chapter_id = data.get("chapter_id")
-            message_index = data.get("message_index")
-            
-            if chapter_id == current_chapter_id:
-                conversation = st.session_state.chapter_conversations.get(chapter_id, [])
-                if 0 <= message_index < len(conversation) and conversation[message_index]["role"] == "user":
-                    st.session_state.editing = (chapter_id, message_index)
-                    st.session_state.edit_text = conversation[message_index]["content"]
-                    st.rerun()
-        except:
-            pass
-    
-    # Chat input for new messages
-    if st.session_state.editing is None:
-        user_input = st.chat_input("Type your answer here...")
-        
-        if user_input:
-            current_chapter_id = current_chapter["id"]
-            
-            # Add to conversation
-            conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
-            conversation.append({"role": "user", "content": user_input})
-            
-            # Generate AI response using st.chat_message for new messages only
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    try:
-                        messages_for_api = [
-                            {"role": "system", "content": get_system_prompt()},
-                            *conversation[-3:]  # Last few messages for context
-                        ]
-                        
-                        response = client.chat.completions.create(
-                            model="gpt-4-turbo-preview",
-                            messages=messages_for_api,
-                            temperature=0.7,
-                            max_tokens=300
-                        )
-                        
-                        ai_response = response.choices[0].message.content
-                        st.markdown(ai_response)
-                        conversation.append({"role": "assistant", "content": ai_response})
-                        
-                    except Exception as e:
-                        error_msg = "Thank you for sharing that. Your response has been saved."
-                        st.markdown(error_msg)
-                        conversation.append({"role": "assistant", "content": error_msg})
-            
-            # Save the first answer to database
-            if len(conversation) == 2:  # Welcome + first answer
-                save_response(current_chapter_id, current_question_text, user_input)
-            
-            # Update conversation
-            st.session_state.chapter_conversations[current_chapter_id] = conversation
-            st.rerun()
-
-with col2:
-    # Right sidebar content
-    st.subheader("Current Questions")
-    
-    for i, question in enumerate(current_chapter["questions"]):
-        is_current = i == st.session_state.current_question
-        
-        # Check if answered
-        is_answered = question in chapter_data.get("questions", {})
-        
-        if is_current:
-            st.markdown(f"<div style='color:blue; font-weight:bold; margin: 5px 0;'>▶️ {question[:50]}...</div>", unsafe_allow_html=True)
-        elif is_answered:
-            st.markdown(f"<div style='color:green; margin: 5px 0;'>✅ {question[:50]}...</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='color:gray; margin: 5px 0;'>○ {question[:50]}...</div>", unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # Complete chapter button
-    if st.button("✅ Complete Chapter", type="primary", use_container_width=True):
-        if questions_answered > 0:
-            summary = generate_chapter_summary(current_chapter_id)
-            st.session_state.responses[current_chapter_id]["summary"] = summary
-            st.session_state.responses[current_chapter_id]["completed"] = True
-            st.success(f"Chapter {current_chapter_id} completed!")
-            st.rerun()
-        else:
-            st.warning("Answer at least one question before completing the chapter.")
-
 # Sidebar for navigation and controls
 with st.sidebar:
     st.header("👤 Your Profile")
@@ -852,4 +602,150 @@ with st.sidebar:
             st.warning("No responses to export yet. Start answering questions first!")
     
     st.divider()
+    
+    # Complete chapter button in sidebar
+    if st.button("✅ Complete Chapter", type="primary", use_container_width=True):
+        current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
+        chapter_data = st.session_state.responses.get(current_chapter_id, {})
+        questions_answered = len(chapter_data.get("questions", {}))
+        
+        if questions_answered > 0:
+            summary = generate_chapter_summary(current_chapter_id)
+            st.session_state.responses[current_chapter_id]["summary"] = summary
+            st.session_state.responses[current_chapter_id]["completed"] = True
+            st.success(f"Chapter {current_chapter_id} completed!")
+            st.rerun()
+        else:
+            st.warning("Answer at least one question before completing the chapter.")
+    
+    st.divider()
     st.caption("Built with DeepSeek AI • Your data is saved locally")
+
+# Main content area - FULL WIDTH
+# Get current chapter
+current_chapter = CHAPTERS[st.session_state.current_chapter]
+current_chapter_id = current_chapter["id"]
+current_question_text = current_chapter["questions"][st.session_state.current_question]
+
+# Show chapter header
+st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
+
+# Show progress
+chapter_data = st.session_state.responses.get(current_chapter_id, {})
+questions_answered = len(chapter_data.get("questions", {}))
+total_questions = len(current_chapter["questions"])
+
+if total_questions > 0:
+    progress = questions_answered / total_questions
+    st.progress(min(progress, 1.0))
+    st.caption(f"Question {st.session_state.current_question + 1} of {total_questions}")
+
+# Show current question
+st.markdown(f"""
+<div class="question-box">
+    <h4 style="margin: 0;">{current_question_text}</h4>
+</div>
+""", unsafe_allow_html=True)
+
+# Show conversation for current chapter
+conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+
+# Auto-start conversation if empty
+if not conversation:
+    welcome_message = f"Hello **{st.session_state.user_id}**! I'm here to help you with your life story. Let's start with: **{current_question_text}**"
+    st.session_state.chapter_conversations[current_chapter_id] = [{"role": "assistant", "content": welcome_message}]
+    conversation = st.session_state.chapter_conversations[current_chapter_id]
+    st.rerun()
+
+# Display conversation
+for i, message in enumerate(conversation):
+    if message["role"] == "assistant":
+        with st.chat_message("assistant"):
+            st.markdown(message["content"])
+    
+    elif message["role"] == "user":
+        # Check if this message is being edited
+        is_editing = (st.session_state.editing == (current_chapter_id, i))
+        
+        with st.chat_message("user"):
+            if is_editing:
+                # Edit mode: show text input and buttons
+                new_text = st.text_area(
+                    "Edit your answer:",
+                    value=st.session_state.edit_text,
+                    key=f"edit_area_{current_chapter_id}_{i}",
+                    label_visibility="collapsed"
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✓ Save", key=f"save_{current_chapter_id}_{i}", type="primary"):
+                        # Save the edited answer
+                        conversation[i]["content"] = new_text
+                        st.session_state.chapter_conversations[current_chapter_id] = conversation
+                        
+                        # Also save to database if this is the main question answer
+                        if i == 1:  # First user answer (right after welcome)
+                            save_response(current_chapter_id, current_question_text, new_text)
+                        
+                        st.session_state.editing = None
+                        st.rerun()
+                with col2:
+                    if st.button("✕ Cancel", key=f"cancel_{current_chapter_id}_{i}"):
+                        st.session_state.editing = None
+                        st.rerun()
+            else:
+                # Normal mode: show answer with edit button
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    st.markdown(message["content"])
+                with col2:
+                    if st.button("✏️", key=f"edit_{current_chapter_id}_{i}"):
+                        st.session_state.editing = (current_chapter_id, i)
+                        st.session_state.edit_text = message["content"]
+                        st.rerun()
+
+# Chat input - only show if not editing
+if st.session_state.editing is None:
+    user_input = st.chat_input("Type your answer here...")
+    
+    if user_input:
+        current_chapter_id = current_chapter["id"]
+        
+        # Add to conversation
+        conversation = st.session_state.chapter_conversations.get(current_chapter_id, [])
+        conversation.append({"role": "user", "content": user_input})
+        
+        # Generate AI response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    messages_for_api = [
+                        {"role": "system", "content": get_system_prompt()},
+                        *conversation[-3:]  # Last few messages for context
+                    ]
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4-turbo-preview",
+                        messages=messages_for_api,
+                        temperature=0.7,
+                        max_tokens=300
+                    )
+                    
+                    ai_response = response.choices[0].message.content
+                    st.markdown(ai_response)
+                    conversation.append({"role": "assistant", "content": ai_response})
+                    
+                except Exception as e:
+                    error_msg = "Thank you for sharing that. Your response has been saved."
+                    st.markdown(error_msg)
+                    conversation.append({"role": "assistant", "content": error_msg})
+        
+        # Save the first answer to database
+        if len(conversation) == 2:  # Welcome + first answer
+            save_response(current_chapter_id, current_question_text, user_input)
+        
+        # Update conversation
+        st.session_state.chapter_conversations[current_chapter_id] = conversation
+        st.rerun()
+
