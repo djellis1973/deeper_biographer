@@ -42,16 +42,24 @@ st.markdown(f"""
     
     .question-box {{
         background-color: #f8f9fa;
-        padding: 0.75rem;
-        border-radius: 6px;
-        border-left: 3px solid #4a5568;
-        margin-bottom: 0.75rem;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border-left: 5px solid #4a5568;
+        margin-bottom: 1.5rem;
+        font-size: 1.2rem;
+        font-weight: 500;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }}
     
-    /* Compact chat layout */
+    .question-counter {{
+        font-size: 1.1rem;
+        font-weight: bold;
+        color: #2c3e50;
+    }}
+    
+    /* Chat styling */
     .stChatMessage {{
-        padding: 0.25rem !important;
-        margin-bottom: 0.25rem !important;
+        margin-bottom: 0.5rem !important;
     }}
     
     .user-message-container {{
@@ -69,12 +77,6 @@ st.markdown(f"""
     /* Remove extra margins */
     [data-testid="stAppViewContainer"] {{
         padding-top: 0.5rem !important;
-    }}
-    
-    /* Compact buttons */
-    .stButton button {{
-        padding: 0.25rem 0.5rem !important;
-        font-size: 0.9rem !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -152,7 +154,7 @@ if "responses" not in st.session_state:
     st.session_state.current_question = 0
     st.session_state.responses = {}
     st.session_state.user_id = "Guest"
-    st.session_state.chapter_conversations = {}  # Will be: {chapter_id: {question_text: conversation}}
+    st.session_state.chapter_conversations = {}  # {chapter_id: {question_text: conversation}}
     st.session_state.editing = None  # (chapter_id, question_text, message_index)
     st.session_state.edit_text = ""
     
@@ -220,28 +222,6 @@ def save_response(chapter_id, question, answer):
             (user_id, chapter_id, question, answer) 
             VALUES (?, ?, ?, ?)
         """, (user_id, chapter_id, question, answer))
-        conn.commit()
-        conn.close()
-    except:
-        pass
-
-# Delete a specific response
-def delete_response(chapter_id, question):
-    user_id = st.session_state.user_id
-    
-    # Delete from session state
-    if chapter_id in st.session_state.responses:
-        if question in st.session_state.responses[chapter_id]["questions"]:
-            del st.session_state.responses[chapter_id]["questions"][question]
-    
-    # Delete from database
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM responses 
-            WHERE user_id = ? AND chapter_id = ? AND question = ?
-        """, (user_id, chapter_id, question))
         conn.commit()
         conn.close()
     except:
@@ -488,7 +468,7 @@ st.caption("A guided journey through your life story")
 if st.session_state.user_id != "Guest":
     load_user_data()
 
-# Sidebar for navigation and controls - REARRANGED
+# Sidebar for navigation and controls
 with st.sidebar:
     st.header("👤 Your Profile")
     
@@ -557,9 +537,9 @@ with st.sidebar:
     # Navigation controls for moving between questions
     st.subheader("Question Navigation")
     
-    # Show current question number
+    # Show current question number - LARGER
     current_chapter = CHAPTERS[st.session_state.current_chapter]
-    st.write(f"**Question {st.session_state.current_question + 1} of {len(current_chapter['questions'])}**")
+    st.markdown(f'<div class="question-counter">Question {st.session_state.current_question + 1} of {len(current_chapter["questions"])}</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -604,7 +584,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Export section - MOVED ABOVE MANAGEMENT
+    # Export section
     st.subheader("📤 Export Options")
     
     # Show what will be exported
@@ -633,7 +613,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Management Section - MOVED TO BOTTOM
+    # Management Section
     st.subheader("⚙️ Management")
     
     # Clear buttons
@@ -675,22 +655,23 @@ current_chapter = CHAPTERS[st.session_state.current_chapter]
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Show chapter header and question number
+# Show chapter header and question number with navigation
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
 with col2:
-    st.caption(f"Question {st.session_state.current_question + 1} of {len(current_chapter['questions'])}")
+    # Larger question counter
+    st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Question {st.session_state.current_question + 1} of {len(current_chapter["questions"])}</div>', unsafe_allow_html=True)
 with col3:
     # Quick navigation buttons
     nav_col1, nav_col2 = st.columns(2)
     with nav_col1:
-        if st.button("←", disabled=st.session_state.current_question == 0, key="prev_q_quick"):
+        if st.button("← Prev", disabled=st.session_state.current_question == 0, key="prev_q_quick", use_container_width=True):
             st.session_state.current_question = max(0, st.session_state.current_question - 1)
             st.session_state.editing = None
             st.rerun()
     with nav_col2:
-        if st.button("→", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_quick"):
+        if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_quick", use_container_width=True):
             st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
             st.session_state.editing = None
             st.rerun()
@@ -704,17 +685,17 @@ if total_questions > 0:
     progress = questions_answered / total_questions
     st.progress(min(progress, 1.0))
 
-# Show chapter guidance - NEW SECTION
+# Show chapter guidance
 st.markdown(f"""
 <div class="chapter-guidance">
     {current_chapter.get('guidance', '')}
 </div>
 """, unsafe_allow_html=True)
 
-# Show current question
+# Show current question - IN A PROPER BOX
 st.markdown(f"""
 <div class="question-box">
-    <h4 style="margin: 0;">{current_question_text}</h4>
+    {current_question_text}
 </div>
 """, unsafe_allow_html=True)
 
@@ -743,60 +724,64 @@ if current_chapter_id not in st.session_state.chapter_conversations:
 # Get conversation for this specific question
 conversation = st.session_state.chapter_conversations[current_chapter_id].get(current_question_text, [])
 
-# Auto-start conversation if empty (WITHOUT THE REDUNDANT WELCOME TEXT)
+# Display conversation - ALWAYS show at least an AI welcome message if empty
 if not conversation:
-    conversation = []
-    st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
-    st.rerun()
-
-# Display conversation
-for i, message in enumerate(conversation):
-    if message["role"] == "assistant":
-        with st.chat_message("assistant"):
-            st.markdown(message["content"])
-    
-    elif message["role"] == "user":
-        # Check if this message is being edited
-        is_editing = (st.session_state.editing == (current_chapter_id, current_question_text, i))
+    # Show AI welcome message for new questions
+    with st.chat_message("assistant"):
+        welcome_msg = f"I'd love to hear your thoughts about this question: **{current_question_text}**"
+        st.markdown(welcome_msg)
+        # Add to conversation so it shows in history
+        conversation.append({"role": "assistant", "content": welcome_msg})
+        st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
+else:
+    # Display existing conversation
+    for i, message in enumerate(conversation):
+        if message["role"] == "assistant":
+            with st.chat_message("assistant"):
+                st.markdown(message["content"])
         
-        with st.chat_message("user"):
-            if is_editing:
-                # Edit mode: show text input and buttons
-                new_text = st.text_area(
-                    "Edit your answer:",
-                    value=st.session_state.edit_text,
-                    key=f"edit_area_{current_chapter_id}_{hash(current_question_text)}_{i}",
-                    label_visibility="collapsed"
-                )
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✓ Save", key=f"save_{current_chapter_id}_{hash(current_question_text)}_{i}", type="primary"):
-                        # Save the edited answer
-                        conversation[i]["content"] = new_text
-                        st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
-                        
-                        # Save to database
-                        save_response(current_chapter_id, current_question_text, new_text)
-                        
-                        st.session_state.editing = None
-                        st.rerun()
-                with col2:
-                    if st.button("✕ Cancel", key=f"cancel_{current_chapter_id}_{hash(current_question_text)}_{i}"):
-                        st.session_state.editing = None
-                        st.rerun()
-            else:
-                # Normal mode: show answer with edit button
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    st.markdown(message["content"])
-                with col2:
-                    if st.button("✏️", key=f"edit_{current_chapter_id}_{hash(current_question_text)}_{i}"):
-                        st.session_state.editing = (current_chapter_id, current_question_text, i)
-                        st.session_state.edit_text = message["content"]
-                        st.rerun()
+        elif message["role"] == "user":
+            # Check if this message is being edited
+            is_editing = (st.session_state.editing == (current_chapter_id, current_question_text, i))
+            
+            with st.chat_message("user"):
+                if is_editing:
+                    # Edit mode: show text input and buttons
+                    new_text = st.text_area(
+                        "Edit your answer:",
+                        value=st.session_state.edit_text,
+                        key=f"edit_area_{current_chapter_id}_{hash(current_question_text)}_{i}",
+                        label_visibility="collapsed"
+                    )
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✓ Save", key=f"save_{current_chapter_id}_{hash(current_question_text)}_{i}", type="primary"):
+                            # Save the edited answer
+                            conversation[i]["content"] = new_text
+                            st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
+                            
+                            # Save to database
+                            save_response(current_chapter_id, current_question_text, new_text)
+                            
+                            st.session_state.editing = None
+                            st.rerun()
+                    with col2:
+                        if st.button("✕ Cancel", key=f"cancel_{current_chapter_id}_{hash(current_question_text)}_{i}"):
+                            st.session_state.editing = None
+                            st.rerun()
+                else:
+                    # Normal mode: show answer with edit button
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        st.markdown(message["content"])
+                    with col2:
+                        if st.button("✏️", key=f"edit_{current_chapter_id}_{hash(current_question_text)}_{i}"):
+                            st.session_state.editing = (current_chapter_id, current_question_text, i)
+                            st.session_state.edit_text = message["content"]
+                            st.rerun()
 
-# Chat input - only show if not editing
+# Chat input - ALWAYS SHOW when not editing
 if st.session_state.editing is None:
     user_input = st.chat_input("Type your answer here...")
     
@@ -812,11 +797,6 @@ if st.session_state.editing is None:
             st.session_state.chapter_conversations[current_chapter_id][current_question_text] = []
         
         conversation = st.session_state.chapter_conversations[current_chapter_id][current_question_text]
-        
-        # If this is the first response for this question, AI can start with a simple prompt
-        if not conversation:
-            ai_opener = "I'd love to hear about this. Please share your thoughts:"
-            conversation.append({"role": "assistant", "content": ai_opener})
         
         # Add user message
         conversation.append({"role": "user", "content": user_input})
@@ -852,4 +832,5 @@ if st.session_state.editing is None:
         # Update conversation
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         st.rerun()
+
 
