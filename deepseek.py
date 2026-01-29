@@ -6,30 +6,17 @@ import os
 import sqlite3
 
 # ────────────────────────────────────────────────
-# YOUR BRANDING
+# CLEAN BRANDING WITH LOGO
 # ────────────────────────────────────────────────
-BRAND_COLORS = {
-    "beige": "#b5aa96",
-    "background_grey": "#c7c7c4", 
-    "dark_grey": "#3e403f"
-}
-
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Apply branding CSS
+# Clean CSS - just adds logo and subtle styling
 st.markdown(f"""
 <style>
-    .stApp {{
-        background-color: {BRAND_COLORS['background_grey']};
-    }}
-    
-    .brand-header {{
-        background: linear-gradient(135deg, {BRAND_COLORS['dark_grey']} 0%, #2d2f2e 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        margin-bottom: 2rem;
+    .main-header {{
         text-align: center;
+        padding: 2rem 0;
+        margin-bottom: 2rem;
     }}
     
     .logo-img {{
@@ -37,29 +24,17 @@ st.markdown(f"""
         height: 100px;
         border-radius: 50%;
         object-fit: cover;
-        border: 4px solid {BRAND_COLORS['beige']};
         margin-bottom: 1rem;
     }}
     
-    .stButton > button {{
-        background-color: {BRAND_COLORS['dark_grey']} !important;
+    .delete-btn {{
+        background-color: #ff4444 !important;
         color: white !important;
         border: none !important;
-        border-radius: 8px !important;
-    }}
-    
-    .stButton > button:hover {{
-        background-color: {BRAND_COLORS['beige']} !important;
-        color: {BRAND_COLORS['dark_grey']} !important;
-    }}
-    
-    .brand-footer {{
-        background-color: {BRAND_COLORS['dark_grey']};
-        color: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        margin-top: 3rem;
-        text-align: center;
+        border-radius: 4px !important;
+        padding: 0.25rem 0.5rem !important;
+        font-size: 0.8rem !important;
+        margin-left: 10px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -136,6 +111,8 @@ if "messages" not in st.session_state:
     st.session_state.responses = {}
     st.session_state.interview_started = False
     st.session_state.user_id = "Guest"  # Default user
+    st.session_state.chapter_messages = {}  # Store messages per chapter
+    st.session_state.showing_welcome = False  # Track if welcome is shown
     
     # Initialize response structure
     for chapter in CHAPTERS:
@@ -145,6 +122,7 @@ if "messages" not in st.session_state:
             "summary": "",
             "completed": False
         }
+        st.session_state.chapter_messages[chapter["id"]] = []
 
 # Load user data from database
 def load_user_data():
@@ -202,6 +180,84 @@ def save_response(chapter_id, question, answer):
             (user_id, chapter_id, question, answer) 
             VALUES (?, ?, ?, ?)
         """, (user_id, chapter_id, question, answer))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+# Delete a specific response
+def delete_response(chapter_id, question):
+    user_id = st.session_state.user_id
+    
+    # Delete from session state
+    if chapter_id in st.session_state.responses:
+        if question in st.session_state.responses[chapter_id]["questions"]:
+            del st.session_state.responses[chapter_id]["questions"][question]
+    
+    # Delete from database
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM responses 
+            WHERE user_id = ? AND chapter_id = ? AND question = ?
+        """, (user_id, chapter_id, question))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+# Clear entire chapter
+def clear_chapter(chapter_id):
+    user_id = st.session_state.user_id
+    
+    # Clear from session state
+    if chapter_id in st.session_state.responses:
+        st.session_state.responses[chapter_id]["questions"] = {}
+        st.session_state.responses[chapter_id]["completed"] = False
+        st.session_state.responses[chapter_id]["summary"] = ""
+    
+    # Clear from database
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM responses 
+            WHERE user_id = ? AND chapter_id = ?
+        """, (user_id, chapter_id))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+# Clear everything (reset)
+def clear_all():
+    user_id = st.session_state.user_id
+    
+    # Clear session state
+    for chapter in CHAPTERS:
+        st.session_state.responses[chapter["id"]] = {
+            "title": chapter["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False
+        }
+        st.session_state.chapter_messages[chapter["id"]] = []
+    
+    st.session_state.messages = []
+    st.session_state.current_chapter = 0
+    st.session_state.current_question = 0
+    st.session_state.interview_started = False
+    st.session_state.showing_welcome = False
+    
+    # Clear database
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM responses 
+            WHERE user_id = ?
+        """, (user_id,))
         conn.commit()
         conn.close()
     except:
@@ -300,16 +356,16 @@ def export_text():
     return text
 
 # ────────────────────────────────────────────────
-# STREAMLIT UI WITH BRANDING
+# STREAMLIT UI
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Branded Header
+# Clean header with logo
 st.markdown(f"""
-<div class="brand-header">
+<div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
-    <h1 style="margin: 0;">LifeStory AI</h1>
-    <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Preserve Your Legacy • Share Your Story</p>
+    <h1>LifeStory AI</h1>
+    <p>Preserve Your Legacy • Share Your Story</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -325,23 +381,79 @@ with st.sidebar:
         st.session_state.user_id = new_user_id
         st.session_state.messages = []
         st.session_state.interview_started = False
+        st.session_state.showing_welcome = False
         load_user_data()
         st.rerun()
     
     st.divider()
     
-    st.header("Chapter Progress")
+    # Management Section
+    st.header("⚙️ Management")
     
-    # Chapter progress tracker
+    # Clear buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Clear Current Chapter", type="secondary"):
+            clear_chapter(CHAPTERS[st.session_state.current_chapter]["id"])
+            st.session_state.current_question = 0
+            st.session_state.showing_welcome = False
+            st.rerun()
+    
+    with col2:
+        if st.button("Clear All", type="secondary"):
+            clear_all()
+            st.rerun()
+    
+    st.divider()
+    
+    st.header("📖 Chapter Progress")
+    
+    # Chapter progress tracker with management
     for i, chapter in enumerate(CHAPTERS):
         status = "✅" if st.session_state.responses[chapter["id"]]["completed"] else "🔄" if i == st.session_state.current_chapter else "⏳"
-        st.write(f"{status} Chapter {chapter['id']}: {chapter['title']}")
+        
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            if st.button(f"{status} Chapter {chapter['id']}: {chapter['title']}", 
+                        key=f"select_{i}",
+                        use_container_width=True):
+                st.session_state.current_chapter = i
+                st.session_state.current_question = 0
+                st.session_state.showing_welcome = False
+                st.rerun()
+        
+        with col2:
+            # Review button
+            if st.session_state.responses[chapter["id"]]["questions"]:
+                if st.button("📝", key=f"review_{i}"):
+                    st.session_state[f"show_review_{i}"] = True
         
         # Show progress within chapter
         if st.session_state.responses[chapter["id"]]["questions"]:
             progress = len(st.session_state.responses[chapter["id"]]["questions"]) / len(chapter["questions"])
             st.progress(progress)
             st.caption(f"{len(st.session_state.responses[chapter['id']]['questions'])}/{len(chapter['questions'])} questions answered")
+        
+        # Show review section if clicked
+        if st.session_state.get(f"show_review_{i}", False):
+            with st.expander(f"Review Chapter {chapter['id']} Responses", expanded=True):
+                for question, data in st.session_state.responses[chapter["id"]]["questions"].items():
+                    col_a, col_b = st.columns([4, 1])
+                    with col_a:
+                        st.text_area(f"Q: {question}", 
+                                   value=data['answer'],
+                                   height=100,
+                                   key=f"review_{chapter['id']}_{question}",
+                                   disabled=True)
+                    with col_b:
+                        if st.button("🗑️", 
+                                   key=f"delete_{chapter['id']}_{question}",
+                                   help="Delete this response"):
+                            delete_response(chapter['id'], question)
+                            st.rerun()
+                if st.button("Close Review", key=f"close_review_{i}"):
+                    st.session_state[f"show_review_{i}"] = False
+                    st.rerun()
     
     st.divider()
     
@@ -352,11 +464,13 @@ with st.sidebar:
         if st.button("← Previous Chapter", disabled=st.session_state.current_chapter == 0):
             st.session_state.current_chapter = max(0, st.session_state.current_chapter - 1)
             st.session_state.current_question = 0
+            st.session_state.showing_welcome = False
             st.rerun()
     with col2:
         if st.button("Next Chapter →", disabled=st.session_state.current_chapter >= len(CHAPTERS)-1):
             st.session_state.current_chapter = min(len(CHAPTERS)-1, st.session_state.current_chapter + 1)
             st.session_state.current_question = 0
+            st.session_state.showing_welcome = False
             st.rerun()
     
     # Jump to specific chapter
@@ -365,6 +479,7 @@ with st.sidebar:
     if chapter_options.index(selected_chapter) != st.session_state.current_chapter:
         st.session_state.current_chapter = chapter_options.index(selected_chapter)
         st.session_state.current_question = 0
+        st.session_state.showing_welcome = False
         st.rerun()
     
     st.divider()
@@ -400,35 +515,48 @@ col1, col2 = st.columns([3, 1])
 with col1:
     # Display current chapter info
     current_chapter = CHAPTERS[st.session_state.current_chapter]
+    
+    # Show current question prominently
+    current_question = current_chapter["questions"][st.session_state.current_question]
+    
+    # Progress header
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
     
     # Show progress within current chapter
     answered = len(st.session_state.responses[current_chapter["id"]]["questions"])
     total = len(current_chapter["questions"])
     st.progress(answered / total if total > 0 else 0)
-    st.caption(f"Question {st.session_state.current_question + 1} of {total} in this chapter")
+    st.caption(f"Question {st.session_state.current_question + 1} of {total}")
     
-    # Display chat messages
-    for message in st.session_state.messages:
+    # Display current question prominently
+    st.markdown(f"### {current_question}")
+    
+    # Only show welcome message ONCE when starting a new chapter
+    if not st.session_state.showing_welcome and not st.session_state.responses[current_chapter["id"]]["questions"]:
+        welcome_message = f"""Hello **{st.session_state.user_id}**! I'm here to help you document your story.
+
+Let's begin with **{current_question}**"""
+        
+        # Add to messages for this chapter
+        st.session_state.chapter_messages[current_chapter["id"]].append({"role": "assistant", "content": welcome_message})
+        st.session_state.showing_welcome = True
+    
+    # Display messages for current chapter
+    for message in st.session_state.chapter_messages.get(current_chapter["id"], []):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
-    # Auto-start interview if not started
-    if not st.session_state.interview_started:
-        welcome_message = f"""Hello **{st.session_state.user_id}**! I'm your biographer, and I'm here to help you create a beautiful, authentic record of your life story.
-
-We'll work through {len(CHAPTERS)} chapters together:
-1. Childhood
-2. Family & Relationships  
-3. Education & Growing Up
-
-Let's begin with **Chapter 1: Childhood**.
-
-{current_chapter['questions'][st.session_state.current_question]}"""
-        
-        st.session_state.messages.append({"role": "assistant", "content": welcome_message})
-        st.session_state.interview_started = True
-        st.rerun()
+    # Show existing answer if already answered this question
+    if current_question in st.session_state.responses[current_chapter["id"]]["questions"]:
+        existing_answer = st.session_state.responses[current_chapter["id"]]["questions"][current_question]["answer"]
+        with st.expander("Your previous answer:", expanded=False):
+            st.markdown(existing_answer)
+            
+            col_a, col_b = st.columns([3, 1])
+            with col_b:
+                if st.button("Delete this answer", type="secondary"):
+                    delete_response(current_chapter["id"], current_question)
+                    st.rerun()
 
 with col2:
     # Current chapter overview
@@ -436,7 +564,12 @@ with col2:
     for i, question in enumerate(current_chapter["questions"]):
         status = "✅" if question in st.session_state.responses[current_chapter["id"]]["questions"] else "●"
         color = "green" if question in st.session_state.responses[current_chapter["id"]]["questions"] else "gray"
-        st.markdown(f"<span style='color:{color}'>{status} {question[:50]}...</span>", unsafe_allow_html=True)
+        is_current = i == st.session_state.current_question
+        
+        if is_current:
+            st.markdown(f"<span style='color:blue; font-weight:bold;'>▶️ {question[:60]}...</span>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<span style='color:{color}'>{status} {question[:60]}...</span>", unsafe_allow_html=True)
     
     st.divider()
     
@@ -451,22 +584,23 @@ with col2:
         if st.session_state.current_chapter < len(CHAPTERS) - 1:
             st.session_state.current_chapter += 1
             st.session_state.current_question = 0
+            st.session_state.showing_welcome = False
         
         st.success(f"Chapter {current_chapter['id']} completed! Summary generated.")
         st.rerun()
 
 # Chat input
-if prompt := st.chat_input("Your response..."):
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
+if prompt := st.chat_input("Type your answer here..."):
+    # Add user message to chapter messages
+    st.session_state.chapter_messages[current_chapter["id"]].append({"role": "user", "content": prompt})
     
-    # Store the response (NOW SAVES TO DATABASE)
-    current_question_text = current_chapter["questions"][st.session_state.current_question]
-    save_response(current_chapter["id"], current_question_text, prompt)  # Changed to save_response
+    # Store the response
+    save_response(current_chapter["id"], current_question, prompt)
     
     # Move to next question in current chapter
     if st.session_state.current_question < len(current_chapter["questions"]) - 1:
         st.session_state.current_question += 1
+        st.session_state.showing_welcome = False
     else:
         # All questions in chapter answered
         st.session_state.responses[current_chapter["id"]]["completed"] = True
@@ -475,13 +609,13 @@ if prompt := st.chat_input("Your response..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Get current question for the prompt
-                new_question = current_chapter["questions"][st.session_state.current_question]
+                # Get next question for the prompt
+                next_question = current_chapter["questions"][st.session_state.current_question]
                 
                 # Prepare conversation history for context
                 messages_for_api = [
                     {"role": "system", "content": get_system_prompt()},
-                    *st.session_state.messages[-6:]  # Last 3 exchanges for context
+                    *st.session_state.chapter_messages[current_chapter["id"]][-2:]  # Last exchange
                 ]
                 
                 response = client.chat.completions.create(
@@ -493,25 +627,16 @@ if prompt := st.chat_input("Your response..."):
                 
                 ai_response = response.choices[0].message.content
                 st.markdown(ai_response)
-                st.session_state.messages.append({"role": "assistant", "content": ai_response})
+                st.session_state.chapter_messages[current_chapter["id"]].append({"role": "assistant", "content": ai_response})
                 
             except Exception as e:
                 st.error(f"Error generating response: {e}")
                 # Fallback response
-                fallback_response = f"""Thank you for sharing that. Your memories are the foundation of your story.
+                fallback_response = f"""Thank you for sharing that. 
 
-Now, I'd love to hear about: {new_question}"""
+Now, I'd love to hear about: {next_question}"""
                 
                 st.markdown(fallback_response)
-                st.session_state.messages.append({"role": "assistant", "content": fallback_response})
-
-# Branded Footer
-st.markdown(f"""
-<div class="brand-footer">
-    <h3 style="margin: 0; color: white;">LifeStory AI</h3>
-    <p style="margin: 0; opacity: 0.8;">Preserving personal histories for future generations</p>
-    <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; opacity: 0.7;">
-        Your stories are saved securely in your local database
-    </p>
-</div>
-""", unsafe_allow_html=True)
+                st.session_state.chapter_messages[current_chapter["id"]].append({"role": "assistant", "content": fallback_response})
+    
+    st.rerun()
