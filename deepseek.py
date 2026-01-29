@@ -4,7 +4,6 @@ from datetime import datetime
 from openai import OpenAI
 import os
 import sqlite3
-import base64
 
 # ────────────────────────────────────────────────
 # CLEAN BRANDING WITH LOGO - FIXED SPACING
@@ -169,239 +168,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# JavaScript for Speech Recognition
-SPEECH_JS = """
-<script>
-// Speech recognition setup
-let recognition = null;
-let isRecording = false;
-let finalTranscript = '';
-let interimTranscript = '';
-
-// Initialize speech recognition
-function initSpeechRecognition() {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        recognition = new SpeechRecognition();
-        
-        recognition.continuous = false;
-        recognition.interimResults = true;
-        recognition.lang = 'en-GB'; // UK English
-        
-        recognition.onstart = function() {
-            isRecording = true;
-            updateRecordingStatus(true);
-            updateStatus('listening', 'Listening... Speak now.');
-        };
-        
-        recognition.onresult = function(event) {
-            interimTranscript = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    finalTranscript += transcript;
-                } else {
-                    interimTranscript += transcript;
-                }
-            }
-            
-            // Update preview
-            updatePreview(finalTranscript + interimTranscript);
-            
-            // Auto-stop after silence (if using continuous: false, this happens automatically)
-            if (interimTranscript.includes('.') || interimTranscript.includes('?')) {
-                // Could add auto-stop logic here
-            }
-        };
-        
-        recognition.onerror = function(event) {
-            console.error('Speech recognition error:', event.error);
-            updateStatus('error', 'Error: ' + event.error);
-            stopRecording();
-        };
-        
-        recognition.onend = function() {
-            isRecording = false;
-            updateRecordingStatus(false);
-            
-            if (finalTranscript.trim()) {
-                updateStatus('processing', 'Processing speech...');
-                // Submit the final transcript after a short delay
-                setTimeout(() => {
-                    submitTranscript(finalTranscript);
-                }, 500);
-            } else {
-                updateStatus('error', 'No speech detected. Please try again.');
-            }
-        };
-        
-        return true;
-    } else {
-        console.error('Speech recognition not supported');
-        updateStatus('error', 'Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
-        return false;
-    }
-}
-
-// Start recording
-function startRecording() {
-    if (!recognition && !initSpeechRecognition()) {
-        return;
-    }
-    
-    finalTranscript = '';
-    interimTranscript = '';
-    updatePreview('');
-    
-    try {
-        recognition.start();
-    } catch (error) {
-        console.error('Failed to start recording:', error);
-        updateStatus('error', 'Failed to start recording. Please try again.');
-    }
-}
-
-// Stop recording
-function stopRecording() {
-    if (recognition && isRecording) {
-        try {
-            recognition.stop();
-        } catch (error) {
-            console.error('Error stopping recording:', error);
-        }
-    }
-}
-
-// Update recording status UI
-function updateRecordingStatus(recording) {
-    const button = document.getElementById('speech-button');
-    const status = document.getElementById('speech-status');
-    
-    if (button) {
-        if (recording) {
-            button.innerHTML = '<span class="mic-icon">●</span> Stop Recording';
-            button.className = 'speech-button speech-button-recording';
-        } else {
-            button.innerHTML = '<span class="mic-icon">🎤</span> Speak Your Answer';
-            button.className = 'speech-button speech-button-primary';
-        }
-    }
-}
-
-// Update status message
-function updateStatus(type, message) {
-    const status = document.getElementById('speech-status');
-    if (status) {
-        status.className = 'speech-status speech-status-' + type;
-        status.textContent = message;
-        status.style.display = 'block';
-    }
-}
-
-// Update preview text
-function updatePreview(text) {
-    const preview = document.getElementById('speech-preview');
-    if (preview) {
-        if (text.trim()) {
-            preview.textContent = text;
-            preview.style.display = 'block';
-        } else {
-            preview.style.display = 'none';
-        }
-    }
-}
-
-// Submit transcript to Streamlit
-function submitTranscript(transcript) {
-    // Clean up the transcript
-    const cleanTranscript = transcript.trim();
-    
-    if (cleanTranscript) {
-        // Send to Streamlit
-        const data = {
-            transcript: cleanTranscript
-        };
-        
-        // Use Streamlit's setComponentValue to pass data back
-        if (window.parent) {
-            window.parent.postMessage({
-                type: 'streamlit:setComponentValue',
-                data: data
-            }, '*');
-        }
-        
-        // Reset after submission
-        finalTranscript = '';
-        interimTranscript = '';
-        updatePreview('');
-        updateStatus('listening', 'Answer submitted!');
-        
-        // Hide status after delay
-        setTimeout(() => {
-            const status = document.getElementById('speech-status');
-            if (status) {
-                status.style.display = 'none';
-            }
-        }, 2000);
-    }
-}
-
-// Initialize when page loads
-document.addEventListener('DOMContentLoaded', function() {
-    // Check for speech recognition support
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-        updateStatus('error', 'Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
-    }
-});
-
-// Handle keyboard shortcuts
-document.addEventListener('keydown', function(event) {
-    // Spacebar to start/stop recording (when focused)
-    if (event.code === 'Space' && !event.target.matches('input, textarea')) {
-        event.preventDefault();
-        if (isRecording) {
-            stopRecording();
-        } else {
-            startRecording();
-        }
-    }
-});
-</script>
-"""
-
-# HTML for speech interface
-SPEECH_HTML = """
-<div style="margin: 1rem 0;">
-    <div style="text-align: center;">
-        <button id="speech-button" class="speech-button speech-button-primary" onclick="startRecording()">
-            <span class="mic-icon">🎤</span> Speak Your Answer
-        </button>
-        <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-            Press Spacebar to start/stop • Speak clearly in UK English
-        </div>
-    </div>
-    
-    <div id="speech-status" class="speech-status"></div>
-    
-    <div id="speech-preview" class="speech-preview" style="display: none;">
-        <strong>Preview:</strong><br>
-        <span id="preview-text"></span>
-    </div>
-    
-    <div class="speech-controls" style="justify-content: center; margin-top: 1rem;">
-        <button onclick="startRecording()" class="speech-button speech-button-primary" style="padding: 0.4rem 0.8rem;">
-            <span class="mic-icon">🎤</span> Start
-        </button>
-        <button onclick="stopRecording()" class="speech-button" style="background-color: #666; color: white; padding: 0.4rem 0.8rem;">
-            <span class="mic-icon">⏹️</span> Stop
-        </button>
-        <button onclick="submitTranscript(finalTranscript)" class="speech-button" style="background-color: #2196F3; color: white; padding: 0.4rem 0.8rem;">
-            <span class="mic-icon">✓</span> Submit
-        </button>
-    </div>
-</div>
-"""
-
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
 
@@ -479,8 +245,9 @@ if "responses" not in st.session_state:
     st.session_state.editing = None  # (chapter_id, question_text, message_index)
     st.session_state.edit_text = ""
     st.session_state.ghostwriter_mode = True  # New: Professional mode toggle
-    st.session_state.speech_input = ""  # New: Store speech input
     st.session_state.show_speech = True  # New: Control speech UI visibility
+    st.session_state.speech_text = ""  # New: Store speech recognition text
+    st.session_state.speech_preview = ""  # New: Store speech preview
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -597,7 +364,8 @@ def clear_all():
     st.session_state.current_question = 0
     st.session_state.editing = None
     st.session_state.edit_text = ""
-    st.session_state.speech_input = ""
+    st.session_state.speech_text = ""
+    st.session_state.speech_preview = ""
     
     # Clear database
     try:
@@ -953,9 +721,6 @@ st.markdown(f"""
 
 st.caption("A professional guided journey through your life story")
 
-# Inject JavaScript for speech recognition
-st.markdown(SPEECH_JS, unsafe_allow_html=True)
-
 # Load user data on startup
 if st.session_state.user_id != "Guest":
     load_user_data()
@@ -974,7 +739,8 @@ with st.sidebar:
         st.session_state.current_question = 0
         st.session_state.editing = None
         st.session_state.edit_text = ""
-        st.session_state.speech_input = ""
+        st.session_state.speech_text = ""
+        st.session_state.speech_preview = ""
         
         # Reinitialize for new user
         for chapter in CHAPTERS:
@@ -1241,21 +1007,54 @@ if st.session_state.show_speech:
     <div style="background-color: #f0f7ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50; margin-bottom: 1rem;">
         <strong>Voice Input Instructions:</strong>
         <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-            <li>Click "Speak Your Answer" or press <strong>Spacebar</strong> to start recording</li>
+            <li>Click the microphone button to start recording</li>
             <li>Speak clearly in UK English for best results</li>
-            <li>Click Stop or press Spacebar again when finished</li>
-            <li>Review your text before submitting</li>
+            <li>Click Stop when finished</li>
+            <li>Review your text below before submitting</li>
             <li>Works best in Chrome, Edge, or Safari browsers</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
     
-    # Speech interface
-    st.markdown(SPEECH_HTML, unsafe_allow_html=True)
+    # Speech interface using Streamlit components
+    col1, col2 = st.columns([1, 1])
     
-    # Manual text input option
+    with col1:
+        if st.button("🎤 Start Recording", type="primary", use_container_width=True, key="start_speech"):
+            # This will trigger JavaScript via HTML
+            st.session_state.speech_preview = "Recording... Speak now."
+            st.rerun()
+    
+    with col2:
+        if st.button("⏹️ Stop Recording", type="secondary", use_container_width=True, key="stop_speech"):
+            st.session_state.speech_preview = "Processing..."
+            st.rerun()
+    
+    # Show speech preview if available
+    if st.session_state.speech_preview:
+        st.info(f"**Speech preview:** {st.session_state.speech_preview}")
+    
+    # Manual speech text input
+    speech_text = st.text_area(
+        "Or paste speech recognition text here:",
+        value=st.session_state.speech_text,
+        height=100,
+        key="speech_text_area",
+        placeholder="Paste your speech recognition text here, or type manually..."
+    )
+    
+    if speech_text != st.session_state.speech_text:
+        st.session_state.speech_text = speech_text
+    
+    # Use speech text button
+    if st.session_state.speech_text and st.button("✅ Use This Text", type="primary", use_container_width=True):
+        # Clean and use the speech text
+        cleaned_text = clean_speech_text(st.session_state.speech_text)
+        st.session_state.speech_preview = f"Ready to use: {cleaned_text[:100]}..."
+        st.session_state.speech_text = cleaned_text
+    
     st.markdown("---")
-    st.markdown("### ✏️ Or Type Manually")
+    st.markdown("### ✏️ Or Type Manually Below")
 
 # Get conversation for current question
 current_chapter_id = current_chapter["id"]
@@ -1347,34 +1146,28 @@ else:
                             st.session_state.edit_text = message["content"]
                             st.rerun()
 
-# Check for speech input from JavaScript
-if st.session_state.speech_input:
-    # Clean the speech input
-    cleaned_text = clean_speech_text(st.session_state.speech_input)
-    
-    # Show preview and confirmation
-    st.info(f"**Speech recognized:** {cleaned_text}")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Use This Text", type="primary"):
-            user_input = cleaned_text
-            # Process as regular input
-            st.session_state.speech_input = ""  # Clear after use
-    with col2:
-        if st.button("❌ Discard"):
-            st.session_state.speech_input = ""
-            st.rerun()
-
 # Chat input - ALWAYS SHOW when not editing
 if st.session_state.editing is None:
-    user_input = st.chat_input("Type your answer here...")
+    # Check if we have speech text to use
+    if st.session_state.speech_text:
+        # Show the speech text with option to use it
+        st.info(f"**Speech text ready:** {st.session_state.speech_text[:200]}...")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Use Speech Text", type="primary", key="use_speech_text"):
+                user_input = clean_speech_text(st.session_state.speech_text)
+                # Clear speech text after use
+                st.session_state.speech_text = ""
+                st.session_state.speech_preview = ""
+        with col2:
+            if st.button("❌ Clear Speech Text", key="clear_speech_text"):
+                st.session_state.speech_text = ""
+                st.session_state.speech_preview = ""
+                st.rerun()
     
-    # Check if we should use speech input instead
-    if not user_input and st.session_state.speech_input:
-        user_input = clean_speech_text(st.session_state.speech_input)
-        # Clear after use
-        st.session_state.speech_input = ""
+    # Regular chat input
+    user_input = st.chat_input("Type your answer here...")
     
     if user_input:
         current_chapter_id = current_chapter["id"]
@@ -1434,14 +1227,83 @@ if st.session_state.editing is None:
         
         # Update conversation
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
+        
+        # Clear speech text if it was used
+        if user_input == st.session_state.speech_text:
+            st.session_state.speech_text = ""
+            st.session_state.speech_preview = ""
+        
         st.rerun()
+
+# Simple JavaScript for speech recognition (as fallback)
+st.markdown("""
+<script>
+// Simple speech recognition example
+function startRecordingSimple() {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+        alert('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
+        return;
+    }
+    
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.lang = 'en-GB';
+    recognition.interimResults = false;
+    
+    recognition.onresult = function(event) {
+        const transcript = event.results[0][0].transcript;
+        // Copy to clipboard as a simple way to get text back
+        navigator.clipboard.writeText(transcript).then(function() {
+            alert('Speech copied to clipboard! Paste it in the text area above.');
+        });
+    };
+    
+    recognition.start();
+}
+</script>
+""", unsafe_allow_html=True)
 
 # Note about speech recognition support
 st.markdown("""
 <div style="font-size: 0.8rem; color: #666; margin-top: 2rem; padding: 1rem; background-color: #f9f9f9; border-radius: 5px;">
-    <strong>Note about Speech Recognition:</strong> This feature uses your browser's built-in Web Speech API. 
-    It works best in Chrome, Edge, and Safari on desktop or mobile. 
-    The recognition happens entirely in your browser—no audio is sent to any server. 
-    Accuracy may vary based on microphone quality and background noise.
+    <strong>Note about Speech Recognition:</strong> For the best experience:
+    <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
+        <li>Use <strong>Chrome, Edge, or Safari</strong> for best speech recognition</li>
+        <li>On mobile: Use <strong>Chrome for Android</strong> or <strong>Safari for iOS</strong></li>
+        <li>Grant microphone permissions when prompted</li>
+        <li>Speak clearly in a quiet environment</li>
+        <li>Alternative: Use your device's built-in speech-to-text, then copy & paste</li>
+    </ul>
 </div>
 """, unsafe_allow_html=True)
+
+# Add instructions for using device speech recognition
+with st.expander("📱 Mobile & Device Speech Recognition Tips"):
+    st.markdown("""
+    ### Using Built-in Speech Recognition:
+    
+    **On iPhone/iPad:**
+    1. Tap the microphone button on your keyboard
+    2. Speak your answer
+    3. Tap Done, then copy the text
+    4. Paste it in the text area above
+    
+    **On Android:**
+    1. Tap the microphone button on Gboard or your keyboard
+    2. Speak your answer
+    3. Copy the text and paste it above
+    
+    **On Windows/Mac:**
+    1. Press **Windows key + H** (Windows) or enable Dictation (Mac)
+    2. Speak your answer
+    3. Copy and paste the text
+    
+    ### Browser Compatibility:
+    - ✅ **Chrome** - Best support, works on desktop & mobile
+    - ✅ **Edge** - Good support
+    - ✅ **Safari** - Works on Mac & iOS
+    - ⚠️ **Firefox** - Limited support
+    
+    The speech recognition happens in your browser—no audio is sent to any server.
+    """)
