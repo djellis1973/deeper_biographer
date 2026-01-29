@@ -341,9 +341,9 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Export functions
+# Export functions - FIXED to include ALL chapters and ALL conversation answers
 def export_json():
-    """Export all responses as JSON"""
+    """Export all responses as JSON - includes ALL chapters and ALL conversation answers"""
     export_data = {
         "metadata": {
             "project": "LifeStory AI",
@@ -357,39 +357,78 @@ def export_json():
     for chapter in CHAPTERS:
         chapter_id = chapter["id"]
         chapter_data = st.session_state.responses.get(chapter_id, {})
-        
-        # Get all questions and answers for this chapter
-        chapter_qa = {}
-        
-        # From saved responses
-        for q, data in chapter_data.get("questions", {}).items():
-            chapter_qa[q] = data.get("answer", "")
-        
-        # Also check conversation for additional answers
         conversations = st.session_state.chapter_conversations.get(chapter_id, {})
-        for question_text, conversation in conversations.items():
-            if question_text not in chapter_qa:
-                # Find user answers in conversation
+        
+        # Get ALL Q&A for this chapter - include both main answers and conversation answers
+        chapter_qa = {}
+        chapter_full_conversations = {}
+        
+        # Process each question in the chapter
+        for question_text in chapter["questions"]:
+            # Get main answer from saved responses
+            main_answer = ""
+            if question_text in chapter_data.get("questions", {}):
+                main_answer = chapter_data["questions"][question_text].get("answer", "")
+            
+            # Get full conversation for this question
+            full_conversation = []
+            if question_text in conversations:
+                # Extract all user answers from conversation
                 user_answers = []
-                for msg in conversation:
+                conversation_history = []
+                for msg in conversations[question_text]:
+                    conversation_history.append({
+                        "role": msg["role"],
+                        "content": msg["content"],
+                        "timestamp": datetime.now().isoformat() if msg["role"] == "user" else ""
+                    })
                     if msg["role"] == "user":
                         user_answers.append(msg["content"])
+                
+                # Store full conversation
+                if conversation_history:
+                    chapter_full_conversations[question_text] = conversation_history
+                
+                # If we have user answers, use them (prefer conversation over saved answer)
                 if user_answers:
-                    chapter_qa[question_text] = " ".join(user_answers)
+                    # Join all user answers with newlines
+                    chapter_qa[question_text] = "\n".join(user_answers)
+                elif main_answer:
+                    # Use saved answer if no conversation
+                    chapter_qa[question_text] = main_answer
+            elif main_answer:
+                # Use saved answer if no conversation exists
+                chapter_qa[question_text] = main_answer
         
-        # Only include chapters with answers
-        if chapter_qa:
+        # Only include chapters with ANY content (answers OR conversations)
+        if chapter_qa or chapter_full_conversations:
             export_data["chapters"][str(chapter_id)] = {
                 "title": chapter["title"],
+                "guidance": chapter.get("guidance", ""),
                 "questions": chapter_qa,
+                "full_conversations": chapter_full_conversations,
                 "summary": chapter_data.get("summary", ""),
-                "completed": chapter_data.get("completed", False)
+                "completed": chapter_data.get("completed", False),
+                "total_questions": len(chapter["questions"]),
+                "answered_questions": len(chapter_qa)
+            }
+        else:
+            # Include empty chapters for completeness
+            export_data["chapters"][str(chapter_id)] = {
+                "title": chapter["title"],
+                "guidance": chapter.get("guidance", ""),
+                "questions": {},
+                "full_conversations": {},
+                "summary": "",
+                "completed": False,
+                "total_questions": len(chapter["questions"]),
+                "answered_questions": 0
             }
     
     return json.dumps(export_data, indent=2)
 
 def export_text():
-    """Export all responses as formatted text"""
+    """Export all responses as formatted text - includes ALL chapters and conversations"""
     text = "=" * 60 + "\n"
     text += "MY LIFE STORY\n"
     text += "=" * 60 + "\n\n"
@@ -401,49 +440,85 @@ def export_text():
     for chapter in CHAPTERS:
         chapter_id = chapter["id"]
         chapter_data = st.session_state.responses.get(chapter_id, {})
-        
-        # Get all Q&A for this chapter
-        chapter_qa = {}
-        
-        # From saved responses
-        for q, data in chapter_data.get("questions", {}).items():
-            chapter_qa[q] = data.get("answer", "")
-        
-        # Also check conversation
         conversations = st.session_state.chapter_conversations.get(chapter_id, {})
-        for question_text, conversation in conversations.items():
-            if question_text not in chapter_qa:
-                user_answers = []
-                for msg in conversation:
-                    if msg["role"] == "user":
-                        user_answers.append(msg["content"])
-                if user_answers:
-                    chapter_qa[question_text] = " ".join(user_answers)
         
-        # Only include chapters with answers
-        if chapter_qa:
+        # Check if this chapter has any content
+        chapter_has_content = False
+        chapter_content = []
+        
+        for question_text in chapter["questions"]:
+            # Check for saved answer
+            has_saved_answer = question_text in chapter_data.get("questions", {})
+            
+            # Check for conversation
+            has_conversation = question_text in conversations and conversations[question_text]
+            
+            if has_saved_answer or has_conversation:
+                chapter_has_content = True
+                
+                # Prepare question block
+                q_block = f"Q: {question_text}\n"
+                
+                if has_conversation:
+                    # Extract all user answers from conversation
+                    user_answers = []
+                    ai_messages = []
+                    
+                    for msg in conversations[question_text]:
+                        if msg["role"] == "user":
+                            user_answers.append(f"A: {msg['content']}")
+                        elif msg["role"] == "assistant":
+                            # Clean up the AI welcome message if it's just the generic one
+                            if not ("I'd love to hear your thoughts about this question:" in msg['content'] and len(conversations[question_text]) == 1):
+                                ai_messages.append(f"AI Follow-up: {msg['content']}")
+                    
+                    # Add all conversation content
+                    if user_answers:
+                        q_block += "\n".join(user_answers) + "\n"
+                    if ai_messages:
+                        q_block += "\n".join(ai_messages) + "\n"
+                
+                elif has_saved_answer:
+                    # Use saved answer
+                    q_block += f"A: {chapter_data['questions'][question_text].get('answer', '')}\n"
+                
+                chapter_content.append(q_block)
+        
+        # Always include the chapter, but mark if empty
+        text += f"\n{'=' * 60}\n"
+        text += f"CHAPTER {chapter_id}: {chapter['title']}\n"
+        text += f"{'=' * 60}\n\n"
+        
+        # Add chapter guidance
+        text += f"Chapter Introduction:\n{chapter.get('guidance', '')}\n\n"
+        
+        if chapter_has_content:
             has_content = True
-            text += f"\nCHAPTER {chapter_id}: {chapter['title']}\n"
-            text += "-" * 50 + "\n\n"
+            text += f"{'-' * 50}\n\n"
             
-            # Add chapter guidance
-            text += f"{chapter.get('guidance', '')}\n\n"
+            # Add all questions and answers
+            for i, q_block in enumerate(chapter_content):
+                text += q_block
+                if i < len(chapter_content) - 1:
+                    text += "\n" + "-" * 40 + "\n\n"
             
-            # Add questions in order
-            for question in chapter["questions"]:
-                if question in chapter_qa:
-                    text += f"Q: {question}\n"
-                    text += f"A: {chapter_qa[question]}\n\n"
-            
+            # Add summary if available
             summary = chapter_data.get("summary")
             if summary and summary != "No responses yet for this chapter.":
-                text += "Summary:\n"
+                text += "\n" + "=" * 50 + "\n"
+                text += "CHAPTER SUMMARY:\n"
+                text += "=" * 50 + "\n\n"
                 text += f"{summary}\n\n"
-            
-            text += "=" * 60 + "\n"
+        else:
+            text += "\n[No responses recorded for this chapter yet]\n\n"
+        
+        text += f"Chapter Status: {'COMPLETED' if chapter_data.get('completed', False) else 'IN PROGRESS'}\n"
+        answered_count = len([q for q in chapter['questions'] if q in chapter_data.get('questions', {}) or (q in conversations and any(msg['role'] == 'user' for msg in conversations[q]))])
+        text += f"Questions answered: {answered_count}/{len(chapter['questions'])}\n"
+        text += "\n" + "=" * 60 + "\n"
     
     if not has_content:
-        text += "\nNo responses have been recorded yet.\n"
+        text += "\nNo responses have been recorded yet in any chapter.\n"
         text += "=" * 60 + "\n"
     
     return text
@@ -589,10 +664,12 @@ with st.sidebar:
     
     # Show what will be exported
     total_answers = sum(len(ch.get("questions", {})) for ch in st.session_state.responses.values())
-    st.caption(f"Total answers to export: {total_answers}")
+    total_conversations = sum(len([q for q, conv in convs.items() if any(msg['role'] == 'user' for msg in conv)]) for convs in st.session_state.chapter_conversations.values())
+    total_to_export = max(total_answers, total_conversations)
+    st.caption(f"Total answers to export: {total_to_export}")
     
     if st.button("📥 Export Current Progress", type="primary"):
-        if total_answers > 0:
+        if total_to_export > 0:
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
