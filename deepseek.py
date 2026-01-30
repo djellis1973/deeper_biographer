@@ -1090,22 +1090,25 @@ with col3:
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 
 # ============================================================================
-# SECTION: PUBLISH YOUR BIOGRAPHY (STREAMLIT BUTTON)
+# SECTION: PUBLISH YOUR BIOGRAPHY (SIMPLE SAFE LINK)
 # ============================================================================
 st.divider()
 st.subheader("📖 Ready to Publish Your Biography?")
 
 st.markdown("""
-Click below to open the Biography Publisher in a new tab.
-There you can compile all your stories into a formatted book.
+Your stories are saved! To create your biography, visit our dedicated publisher:
 """)
 
+# Your publisher app URL
 publisher_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
 
-if st.button("🖨️ Open Biography Publisher", type="primary", use_container_width=True):
-    st.markdown(f'<meta http-equiv="refresh" content="0; url={publisher_url}">', 
-                unsafe_allow_html=True)
-    st.success("Opening publisher... If nothing happens, [click here](%s)" % publisher_url)
+# Simple markdown link - NO buttons, NO redirects, NO HTML
+st.markdown(f"""
+**[🖨️ Click here to open the Biography Publisher]({publisher_url})**
 
-st.caption("Your interview progress is automatically saved. You can return here anytime.")
+(Opens in a new tab)
+""")
+
+st.caption("Your interview progress is saved. Return here anytime to continue.")
+
 
