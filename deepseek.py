@@ -424,12 +424,18 @@ def clean_speech_text(text):
 # ============================================================================
 # SECTION 7: SPEECH-TO-TEXT AND SPELLING FUNCTIONS
 # ============================================================================
-def transcribe_audio(audio_bytes):
+def transcribe_audio(audio_file):
+    """Transcribe audio using OpenAI Whisper API"""
     try:
+        # Read the audio bytes from UploadedFile object
+        audio_bytes = audio_file.read()
+        
+        # Create a temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
         
+        # Transcribe using Whisper
         with open(tmp_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1",
@@ -437,11 +443,13 @@ def transcribe_audio(audio_bytes):
                 language="en"
             )
         
+        # Clean up
         os.unlink(tmp_path)
+        
         return transcript.text
         
     except Exception as e:
-        st.error(f"Error transcribing audio: {e}")
+        st.error(f"Error transcribing audio: {str(e)}")
         return None
 
 def check_spelling_openai(text):
@@ -460,17 +468,16 @@ def check_spelling_openai(text):
             temperature=0.1
         )
         corrected_text = response.choices[0].message.content
+        
         # Simple comparison to find changes
-        original_words = text.split()
-        corrected_words = corrected_text.split()
-        suggestions = []
-        
-        if original_words != corrected_words:
-            suggestions.append(("Text has been corrected", "See corrected version above"))
-        
-        return corrected_text, suggestions
+        if corrected_text != text:
+            return corrected_text, ["AI suggested corrections available"]
+        else:
+            return text, []
+            
     except Exception as e:
         # If OpenAI fails, return original text
+        st.warning(f"Spell check unavailable: {str(e)}")
         return text, []
 
 def auto_correct_text(text):
@@ -647,7 +654,7 @@ with st.sidebar:
     
     st.divider()
     
-    # ============================================================================
+       # ============================================================================
     # SECTION 10A: SIDEBAR - WORD COUNT SETTINGS (NEW CLEARLY MARKED SECTION)
     # ============================================================================
     st.header("📊 Word Count Settings")
@@ -655,18 +662,21 @@ with st.sidebar:
     for i, chapter in enumerate(CHAPTERS):
         chapter_id = chapter["id"]
         
-        # ALWAYS use session state as source of truth
+        # Get current values
         target_words = st.session_state.responses[chapter_id].get("word_target", 500)
         word_count = calculate_chapter_word_count(chapter_id)
         color, emoji, progress = get_traffic_light(chapter_id)
         
-        if st.session_state.responses[chapter_id].get("completed", False):
+        # Determine chapter status
+        chapter_data = st.session_state.responses.get(chapter_id, {})
+        if chapter_data.get("completed", False):
             status = "✅"
         elif i == st.session_state.current_chapter:
             status = "▶️"
         else:
             status = "●"
         
+        # Chapter button
         button_text = f"{emoji} {status} Chapter {chapter['id']}: {chapter['title']}"
         
         if st.button(button_text, 
@@ -678,18 +688,22 @@ with st.sidebar:
             st.session_state.editing = None
             st.rerun()
         
+        # Progress bar and word count display
         if target_words > 0:
             progress_bar = min(word_count / target_words, 1.0)
             st.progress(progress_bar)
             
-            col1, col2 = st.columns([3, 1])
+            # Display with traffic light emoji
+            col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
-                st.caption(f"📝 {word_count}/{target_words} words")
+                st.caption(f"{emoji} {word_count}/{target_words} words")
             with col2:
+                st.caption(f"{progress:.0f}%")
+            with col3:
                 if st.button("✏️", key=f"edit_target_{chapter_id}", help="Edit word target"):
                     st.session_state[f"editing_target_{chapter_id}"] = True
         
-        # Edit target input
+        # Edit target input section
         if st.session_state.get(f"editing_target_{chapter_id}"):
             new_target = st.number_input(
                 f"Target words for Chapter {chapter_id}:",
@@ -702,9 +716,10 @@ with st.sidebar:
             
             col_save, col_cancel = st.columns(2)
             with col_save:
-                if st.button("💾 Save", key=f"save_target_{chapter_id}"):
-                    # Update BOTH session state and database
+                if st.button("💾 Save", key=f"save_target_{chapter_id}", type="primary"):
+                    # Update session state - THIS IS THE SOURCE OF TRUTH
                     st.session_state.responses[chapter_id]["word_target"] = new_target
+                    # Also update database
                     save_word_target(chapter_id, new_target)
                     st.session_state[f"editing_target_{chapter_id}"] = False
                     st.rerun()
@@ -712,8 +727,6 @@ with st.sidebar:
                 if st.button("❌ Cancel", key=f"cancel_target_{chapter_id}"):
                     st.session_state[f"editing_target_{chapter_id}"] = False
                     st.rerun()
-    
-    st.divider()
     
     # ============================================================================
     # SECTION 10B: SIDEBAR - NAVIGATION CONTROLS
@@ -859,36 +872,46 @@ with col3:
             st.session_state.editing = None
             st.rerun()
 
-# WORD COUNT DISPLAY - NOW SYNCED WITH SIDEBAR
+# WORD COUNT DISPLAY - SYNCHRONIZED WITH SIDEBAR
 current_word_count = calculate_chapter_word_count(current_chapter_id)
-# FIXED: Use the session state target, not the hardcoded chapter value
+# FIXED: Use the session state target from sidebar edits
 target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
 color, emoji, progress_percent = get_traffic_light(current_chapter_id)
 
+# Calculate remaining words
+remaining_words = max(0, target_words - current_word_count)
+status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
+
 st.markdown(f"""
 <div class="word-count-box">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <div>
             <h4 style="margin: 0; display: flex; align-items: center;">
                 <span class="traffic-light" style="background-color: {color};"></span>
-                Word Count: {current_word_count} / {target_words}
+                Word Progress: {current_word_count} / {target_words}
             </h4>
             <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
-                {emoji} {progress_percent:.0f}% of target • {max(0, target_words - current_word_count)} words remaining
+                {emoji} {progress_percent:.0f}% complete • {status_text}
             </p>
         </div>
-        <div>
-            <span style="font-size: 1.2rem; font-weight: bold;">{emoji}</span>
+        <div style="text-align: center;">
+            <div style="font-size: 1.5rem; font-weight: bold;">{emoji}</div>
+            <div style="font-size: 0.8rem; color: #666;">Status</div>
         </div>
     </div>
     <div style="margin-top: 1rem;">
-        <div style="height: 10px; background-color: #e0e0e0; border-radius: 5px; overflow: hidden;">
-            <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 5px;"></div>
+        <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; overflow: hidden;">
+            <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 6px; transition: width 0.3s ease;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.8rem; color: #666;">
+            <span>0</span>
+            <span>Target: {target_words}</span>
         </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
+# Questions progress
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
 questions_answered = len(chapter_data.get("questions", {}))
 total_questions = len(current_chapter["questions"])
@@ -896,19 +919,7 @@ total_questions = len(current_chapter["questions"])
 if total_questions > 0:
     question_progress = questions_answered / total_questions
     st.progress(min(question_progress, 1.0))
-    st.caption(f"Questions answered: {questions_answered}/{total_questions}")
-
-st.markdown(f"""
-<div class="chapter-guidance">
-    {current_chapter.get('guidance', '')}
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown(f"""
-<div class="question-box">
-    {current_question_text}
-</div>
-""", unsafe_allow_html=True)
+    st.caption(f"📝 Questions answered: {questions_answered}/{total_questions} ({question_progress*100:.0f}%)")
 
 # ============================================================================
 # SECTION 12: AUTOMATIC SPEECH-TO-TEXT WITH WHISPER API
@@ -1047,16 +1058,14 @@ else:
                     
                     # Real-time spell checking while editing
                     if new_text and st.session_state.spellcheck_enabled:
-                        checked_text, suggestions = check_spelling(new_text)
-                        if suggestions:
+                        corrected_text, suggestions = check_spelling_openai(new_text)
+                        if suggestions and corrected_text != new_text:
                             st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
-                            st.write("**Spelling suggestions (click to apply):**")
-                            for wrong, correct in suggestions[:5]:
-                                if st.button(f"Replace '{wrong}' with '{correct}'", 
-                                           key=f"replace_{wrong}_{i}",
-                                           type="secondary"):
-                                    new_text = new_text.replace(wrong, correct)
-                                    st.rerun()
+                            st.write("**Spelling/grammar suggestions available**")
+                            st.write(f"*Corrected version:* {corrected_text[:200]}...")
+                            if st.button("Apply Correction", key=f"apply_correction_{i}"):
+                                new_text = corrected_text
+                                st.rerun()
                             st.markdown('</div>', unsafe_allow_html=True)
                     
                     if new_text:
@@ -1109,12 +1118,14 @@ if st.session_state.editing is None:
             
             # Show spelling suggestions above input
             if user_input and st.session_state.spellcheck_enabled:
-                _, suggestions = check_spelling(user_input)
-                if suggestions:
+                corrected_text, suggestions = check_spelling_openai(user_input)
+                if suggestions and corrected_text != user_input:
                     st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
-                    st.write("**Spelling suggestions:**")
-                    for wrong, correct in suggestions[:3]:
-                        st.write(f"• '{wrong}' → '{correct}'")
+                    st.write("**Suggested correction:**")
+                    st.write(f"*{corrected_text}*")
+                    if st.button("Use Corrected Version", key="use_corrected"):
+                        user_input = corrected_text
+                        st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
     
     if user_input:
@@ -1190,7 +1201,6 @@ if st.session_state.editing is None:
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         
         st.rerun()
-
 # ============================================================================
 # SECTION 15: FOOTER WITH STATISTICS
 # ============================================================================
@@ -1206,4 +1216,5 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[ch["id"]].get("questions", {})) for ch in CHAPTERS)
     total_all_questions = sum(len(ch["questions"]) for ch in CHAPTERS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
 
