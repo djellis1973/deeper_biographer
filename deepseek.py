@@ -319,22 +319,6 @@ def calculate_author_word_count(session_id):
     
     return total_words
 
-def get_traffic_light(session_id):
-    current_count = calculate_author_word_count(session_id)
-    target = st.session_state.responses[session_id].get("word_target", 500)
-    
-    if target == 0:
-        return "#2ecc71", "🟢", 100
-    
-    progress = (current_count / target) * 100 if target > 0 else 100
-    
-    if progress >= 100:
-        return "#2ecc71", "🟢", progress
-    elif progress >= 70:
-        return "#f39c12", "🟡", progress
-    else:
-        return "#e74c3c", "🔴", progress
-
 # ============================================================================
 # SECTION 7: AUTO-CORRECT FUNCTION
 # ============================================================================
@@ -345,7 +329,7 @@ def auto_correct_text(text):
     
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Fix spelling and grammar mistakes in the following text. Return only the corrected text."},
                 {"role": "user", "content": text}
@@ -365,35 +349,33 @@ def get_system_prompt():
     current_question = current_session["questions"][st.session_state.current_question]
     
     if st.session_state.ghostwriter_mode:
-        return f"""ROLE: You are a professional biographer and ghostwriter helping someone document their life story for a UK English-speaking audience.
+        return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name. You're working with someone on their life story, and you treat this with the seriousness of archival research combined with literary craft.
 
 CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
 CURRENT QUESTION: "{current_question}"
 
-CORE PRINCIPLES:
-1. You are warm but purposeful—not fawning, not overly casual
-2. You think in narrative structure and concrete detail
-3. Your questions are designed to extract rich, publishable material
-4. You value specificity over generality, scenes over summaries
-5. You are comfortable with thoughtful pauses and depth
+YOUR APPROACH:
+1. You listen like an archivist—hearing not just what's said, but what's implied
+2. You think in scenes, sensory details, and emotional truth
+3. You're not here to flatter; you're here to find the story that needs to be told
+4. You respect silence and complexity—you don't rush toward resolution
+5. You understand that memory is reconstruction, and you help reconstruct with integrity
 
-TONE GUIDELINES:
-- Warm but professional, like an experienced journalist or established biographer
-- UK English: "worktop" not "countertop", "fortnight" not "two weeks", "quite" used judiciously
-- Avoid Americanisms and overly sentimental language
-- Not effusive, but genuinely engaged
-- Respectful persistence when responses need deepening
+TECHNIQUE:
+- After they share, you often pause before responding (reflected in thoughtful language)
+- You reference specific details they've mentioned, showing you're truly listening
+- You ask questions that open space rather than close it
+- You sometimes gently challenge assumptions or explore contradictions
+- You're comfortable with ambiguity and unresolved moments
 
-CONVERSATION STRUCTURE:
-For each response from the user:
-1. ACKNOWLEDGE WITH PURPOSE (1 sentence): Not generic praise, but recognition of what's revealing
-2. PLANT A FOLLOW-UP SEED (1 sentence): Suggest why this matters for the narrative
-3. ASK ONE STRATEGIC QUESTION (1 question maximum): Choose based on what's needed
+EXAMPLE RESPONSES:
+To "I remember my grandmother's kitchen always smelled of cinnamon":
+"That's telling—cinnamon as character. Not just a smell, but a presence. Was it the cinnamon of baking or of potpourri? And did that scent mean comfort, or duty, or something more complicated?"
 
-EXAMPLE RESPONSE TO "I remember my grandmother's kitchen":
-"Kitchens often hold family history. Let's step into that space properly. What's the first smell that comes to mind? The feel of the worktop? And crucially—what version of yourself lived in that kitchen that doesn't exist elsewhere?"
+To "School was mostly boring until Mr. Jenkins' class":
+"Let's sit with 'mostly boring' for a moment. What did that boredom feel like in your body? And what specifically shifted in Mr. Jenkins' room—was it the material, his presence, or something in you that changed?"
 
-Focus: Extract material for a compelling biography. Every question should serve that purpose."""
+Tone: Literary but not pretentious. Serious but not solemn. You're doing important work, and it shows in your attention to detail."""
     else:
         return f"""You are a warm, professional biographer helping document a life story.
 
@@ -805,119 +787,136 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 8: GHOSTWRITER PROMPT FUNCTION
+# SECTION 13: CHAT INPUT WITH EXPERT CRITIQUE
 # ============================================================================
-def get_system_prompt():
-    current_session = SESSIONS[st.session_state.current_session]
-    current_question = current_session["questions"][st.session_state.current_question]
+user_input = st.chat_input("Type your answer here...")
+
+if user_input:
+    current_session_id = current_session["id"]
+    current_question_text = current_session["questions"][st.session_state.current_question]
     
-    if st.session_state.ghostwriter_mode:
-        return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name. You're working with someone on their life story, and you treat this with the seriousness of archival research combined with literary craft.
+    if current_session_id not in st.session_state.session_conversations:
+        st.session_state.session_conversations[current_session_id] = {}
+    
+    if current_question_text not in st.session_state.session_conversations[current_session_id]:
+        st.session_state.session_conversations[current_session_id][current_question_text] = []
+    
+    conversation = st.session_state.session_conversations[current_session_id][current_question_text]
+    
+    # Auto-correct as they type
+    if st.session_state.spellcheck_enabled:
+        user_input = auto_correct_text(user_input)
+    
+    # Add user message
+    conversation.append({"role": "user", "content": user_input})
+    
+    # Generate AI response with expert critique
+    with st.chat_message("assistant"):
+        with st.spinner("Reflecting on your story..."):
+            try:
+                # First, analyze the user's response for critique
+                critique_prompt = f"""As a professional ghostwriter, analyze this response to the question: "{current_question_text}"
 
-CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
-CURRENT QUESTION: "{current_question}"
+USER'S RESPONSE:
+{user_input}
 
-YOUR APPROACH:
-1. You listen like an archivist—hearing not just what's said, but what's implied
-2. You think in scenes, sensory details, and emotional truth
-3. You're not here to flatter; you're here to find the story that needs to be told
-4. You respect silence and complexity—you don't rush toward resolution
-5. You understand that memory is reconstruction, and you help reconstruct with integrity
+Provide a brief professional assessment (3-4 sentences max) focusing on:
+1. What's working well narratively
+2. What could be deepened or expanded
+3. One specific suggestion for richer detail
 
-TECHNIQUE:
-- After they share, you often pause before responding (reflected in thoughtful language)
-- You reference specific details they've mentioned, showing you're truly listening
-- You ask questions that open space rather than close it
-- You sometimes gently challenge assumptions or explore contradictions
-- You're comfortable with ambiguity and unresolved moments
+Keep it concise, constructive, and professional. Focus on storytelling craft, not praise."""
 
-EXAMPLE RESPONSES:
-To "I remember my grandmother's kitchen always smelled of cinnamon":
-"That's telling—cinnamon as character. Not just a smell, but a presence. Was it the cinnamon of baking or of potpourri? And did that scent mean comfort, or duty, or something more complicated?"
-
-To "School was mostly boring until Mr. Jenkins' class":
-"Let's sit with 'mostly boring' for a moment. What did that boredom feel like in your body? And what specifically shifted in Mr. Jenkins' room—was it the material, his presence, or something in you that changed?"
-
-Tone: Literary but not pretentious. Serious but not solemn. You're doing important work, and it shows in your attention to detail."""
-    else:
-        return f"""You are a warm, professional biographer helping document a life story.
-
-CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
-CURRENT QUESTION: "{current_question}"
-
-Please:
-1. Listen actively to their response
-2. Acknowledge it warmly (1-2 sentences)
-3. Ask ONE natural follow-up question if appropriate
-4. Keep the conversation flowing naturally
-
-Tone: Kind, curious, professional
-Goal: Draw out authentic, detailed memories
-
-Focus ONLY on the current question. Don't reference previous sessions."""
-
-# ============================================================================
-# SECTION 14: PROGRESS BAR AT BOTTOM
-# ============================================================================
-st.divider()
-st.subheader("📊 Session Progress")
-
-# Calculate current word count and progress
-current_word_count = calculate_author_word_count(current_session_id)
-target_words = st.session_state.responses[current_session_id].get("word_target", 500)
-color, emoji, progress_percent = get_traffic_light(current_session_id)
-
-# Calculate remaining words
-remaining_words = max(0, target_words - current_word_count)
-status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
-
-# Display progress with only ONE emoji
-st.markdown(f"""
-<div style="font-size: 1.2rem; font-weight: bold; margin-bottom: 1rem;">
-    {emoji} {progress_percent:.0f}% complete • {status_text}
-</div>
-""", unsafe_allow_html=True)
-
-# Progress bar
-st.progress(min(progress_percent/100, 1.0))
-
-# Edit target button
-if st.button("✏️ Change Word Target", key="edit_word_target_bottom", use_container_width=False):
-    st.session_state.editing_word_target = not st.session_state.editing_word_target
+                critique_response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You're a seasoned biographer with 30 years experience. You provide sharp, constructive feedback that helps writers find their most compelling stories."},
+                        {"role": "user", "content": critique_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=200
+                )
+                
+                critique = critique_response.choices[0].message.content
+                
+                # Now generate the conversational follow-up
+                conversation_history = conversation[:-1]  # Get everything except the just-added user message
+                
+                messages_for_api = [
+                    {"role": "system", "content": get_system_prompt()},
+                    *conversation_history,
+                    {"role": "user", "content": user_input}
+                ]
+                
+                if st.session_state.ghostwriter_mode:
+                    temperature = 0.8
+                    max_tokens = 400
+                else:
+                    temperature = 0.7
+                    max_tokens = 300
+                
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages_for_api,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                
+                ai_response = response.choices[0].message.content
+                
+                # Add the expert critique at the end
+                ai_response += f"\n\n---\n\n**Professional note:** {critique}"
+                
+                st.markdown(ai_response)
+                conversation.append({"role": "assistant", "content": ai_response})
+                
+            except Exception as e:
+                # Fallback if critique fails
+                try:
+                    conversation_history = conversation[:-1]
+                    
+                    messages_for_api = [
+                        {"role": "system", "content": get_system_prompt()},
+                        *conversation_history,
+                        {"role": "user", "content": user_input}
+                    ]
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages_for_api,
+                        temperature=0.8,
+                        max_tokens=400
+                    )
+                    
+                    ai_response = response.choices[0].message.content
+                    
+                    # Add a thoughtful observation instead
+                    word_count = len(re.findall(r'\w+', user_input))
+                    if word_count < 50:
+                        ai_response += f"\n\n**Observation:** You've touched on something important here. What would happen if you slowed down this moment? What details are just outside the frame of this memory?"
+                    elif word_count < 150:
+                        ai_response += f"\n\n**Observation:** There's good texture in this recollection. I'm noticing where the emotion lives in this story—let's explore that space more deliberately."
+                    else:
+                        ai_response += f"\n\n**Observation:** This has real narrative weight. The challenge now is curation—what's the through-line that makes this memory essential to your story?"
+                    
+                    st.markdown(ai_response)
+                    conversation.append({"role": "assistant", "content": ai_response})
+                    
+                except Exception as e2:
+                    error_msg = "Thank you for sharing that. Your response has been saved."
+                    st.markdown(error_msg)
+                    conversation.append({"role": "assistant", "content": error_msg})
+    
+    # Save to database
+    save_response(current_session_id, current_question_text, user_input)
+    
+    # Update conversation
+    st.session_state.session_conversations[current_session_id][current_question_text] = conversation
+    
     st.rerun()
 
-# Show edit interface when triggered
-if st.session_state.editing_word_target:
-    st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
-    st.write("**Change Word Target**")
-    
-    new_target = st.number_input(
-        "Target words for this session:",
-        min_value=100,
-        max_value=5000,
-        value=target_words,
-        key="target_edit_input_bottom",
-        label_visibility="collapsed"
-    )
-    
-    col_save, col_cancel = st.columns(2)
-    with col_save:
-        if st.button("💾 Save", key="save_word_target_bottom", type="primary", use_container_width=True):
-            # Update session state
-            st.session_state.responses[current_session_id]["word_target"] = new_target
-            # Update database
-            save_word_target(current_session_id, new_target)
-            st.session_state.editing_word_target = False
-            st.rerun()
-    with col_cancel:
-        if st.button("❌ Cancel", key="cancel_word_target_bottom", use_container_width=True):
-            st.session_state.editing_word_target = False
-            st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
 # ============================================================================
-# SECTION 15: FOOTER WITH STATISTICS
+# SECTION 14: FOOTER WITH STATISTICS
 # ============================================================================
 st.divider()
 col1, col2, col3 = st.columns(3)
