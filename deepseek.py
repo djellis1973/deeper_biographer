@@ -857,64 +857,7 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 13: WORD PROGRESS INDICATOR (ADDED BACK)
-# ============================================================================
-st.divider()
-
-# Get progress info
-progress_info = get_progress_info(current_session_id)
-
-# Display progress container
-st.markdown(f"""
-<div class="progress-container">
-    <div class="progress-header">📊 Session Progress</div>
-    <div class="progress-status">{progress_info['emoji']} {progress_info['progress_percent']:.0f}% complete • {progress_info['status_text']}</div>
-    <div class="progress-bar-container">
-        <div class="progress-bar-fill" style="width: {min(progress_info['progress_percent'], 100)}%; background-color: {progress_info['color']};"></div>
-    </div>
-    <div style="text-align: center; font-size: 0.9rem; color: #666; margin-top: 0.5rem;">
-        {progress_info['current_count']} / {progress_info['target']} words
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# Edit target button
-if st.button("✏️ Change Word Target", key="edit_word_target_bottom", use_container_width=True):
-    st.session_state.editing_word_target = not st.session_state.editing_word_target
-    st.rerun()
-
-# Show edit interface when triggered
-if st.session_state.editing_word_target:
-    st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
-    st.write("**Change Word Target**")
-    
-    new_target = st.number_input(
-        "Target words for this session:",
-        min_value=100,
-        max_value=5000,
-        value=progress_info['target'],
-        key="target_edit_input_bottom",
-        label_visibility="collapsed"
-    )
-    
-    col_save, col_cancel = st.columns(2)
-    with col_save:
-        if st.button("💾 Save", key="save_word_target_bottom", type="primary", use_container_width=True):
-            # Update session state
-            st.session_state.responses[current_session_id]["word_target"] = new_target
-            # Update database
-            save_word_target(current_session_id, new_target)
-            st.session_state.editing_word_target = False
-            st.rerun()
-    with col_cancel:
-        if st.button("❌ Cancel", key="cancel_word_target_bottom", use_container_width=True):
-            st.session_state.editing_word_target = False
-            st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ============================================================================
-# SECTION 14: CHAT INPUT WITH EXPERT CRITIQUE
+# SECTION 13: CHAT INPUT WITH EXPERT CRITIQUE - MUST BE DIRECTLY BELOW CONVERSATION
 # ============================================================================
 user_input = st.chat_input("Type your answer here...")
 
@@ -1043,6 +986,63 @@ Keep it concise, constructive, and professional. Focus on storytelling craft, no
     st.rerun()
 
 # ============================================================================
+# SECTION 14: WORD PROGRESS INDICATOR (BELOW CHAT INPUT)
+# ============================================================================
+st.divider()
+
+# Get progress info
+progress_info = get_progress_info(current_session_id)
+
+# Display progress container
+st.markdown(f"""
+<div class="progress-container">
+    <div class="progress-header">📊 Session Progress</div>
+    <div class="progress-status">{progress_info['emoji']} {progress_info['progress_percent']:.0f}% complete • {progress_info['status_text']}</div>
+    <div class="progress-bar-container">
+        <div class="progress-bar-fill" style="width: {min(progress_info['progress_percent'], 100)}%; background-color: {progress_info['color']};"></div>
+    </div>
+    <div style="text-align: center; font-size: 0.9rem; color: #666; margin-top: 0.5rem;">
+        {progress_info['current_count']} / {progress_info['target']} words
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Edit target button
+if st.button("✏️ Change Word Target", key="edit_word_target_bottom", use_container_width=True):
+    st.session_state.editing_word_target = not st.session_state.editing_word_target
+    st.rerun()
+
+# Show edit interface when triggered
+if st.session_state.editing_word_target:
+    st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
+    st.write("**Change Word Target**")
+    
+    new_target = st.number_input(
+        "Target words for this session:",
+        min_value=100,
+        max_value=5000,
+        value=progress_info['target'],
+        key="target_edit_input_bottom",
+        label_visibility="collapsed"
+    )
+    
+    col_save, col_cancel = st.columns(2)
+    with col_save:
+        if st.button("💾 Save", key="save_word_target_bottom", type="primary", use_container_width=True):
+            # Update session state
+            st.session_state.responses[current_session_id]["word_target"] = new_target
+            # Update database
+            save_word_target(current_session_id, new_target)
+            st.session_state.editing_word_target = False
+            st.rerun()
+    with col_cancel:
+        if st.button("❌ Cancel", key="cancel_word_target_bottom", use_container_width=True):
+            st.session_state.editing_word_target = False
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ============================================================================
 # SECTION 15: FOOTER WITH STATISTICS
 # ============================================================================
 st.divider()
@@ -1057,3 +1057,4 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
