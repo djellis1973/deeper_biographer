@@ -52,9 +52,10 @@ st.markdown(f"""
         border-radius: 10px;
         border-left: 5px solid #4a5568;
         margin-bottom: 0.5rem;
-        font-size: 1.2rem;
-        font-weight: 500;
+        font-size: 1.3rem;
+        font-weight: 600;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        line-height: 1.4;
     }}
     
     .question-counter {{
@@ -66,6 +67,17 @@ st.markdown(f"""
     /* Chat styling */
     .stChatMessage {{
         margin-bottom: 0.5rem !important;
+    }}
+    
+    /* Custom avatar styling */
+    .ghostwriter-avatar {{
+        background-color: #4a5568 !important;
+        color: white !important;
+    }}
+    
+    .storyteller-avatar {{
+        background-color: #2c5282 !important;
+        color: white !important;
     }}
     
     .user-message-container {{
@@ -152,6 +164,12 @@ st.markdown(f"""
         height: 100%;
         border-radius: 5px;
         transition: width 0.3s ease;
+    }}
+    
+    /* Navigation button styling */
+    .nav-button {{
+        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -422,7 +440,7 @@ def get_system_prompt():
         return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name. You're working with someone on their life story, and you treat this with the seriousness of archival research combined with literary craft.
 
 CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
-CURRENT QUESTION: "{current_question}"
+CURRENT TOPIC: "{current_question}"
 
 YOUR APPROACH:
 1. You listen like an archivist—hearing not just what's said, but what's implied
@@ -450,7 +468,7 @@ Tone: Literary but not pretentious. Serious but not solemn. You're doing importa
         return f"""You are a warm, professional biographer helping document a life story.
 
 CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
-CURRENT QUESTION: "{current_question}"
+CURRENT TOPIC: "{current_question}"
 
 Please:
 1. Listen actively to their response
@@ -461,17 +479,17 @@ Please:
 Tone: Kind, curious, professional
 Goal: Draw out authentic, detailed memories
 
-Focus ONLY on the current question. Don't reference previous sessions."""
+Focus ONLY on the current topic. Don't reference previous sessions."""
 
 # ============================================================================
 # SECTION 9: MAIN APP HEADER
 # ============================================================================
-st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
+st.set_page_config(page_title="DeeperVault UK Legacy Builder", page_icon="📖", layout="wide")
 
 st.markdown(f"""
 <div class="main-header">
-    <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
-    <h2 style="margin: 0; line-height: 1.2;">LifeStory AI</h2>
+    <img src="{LOGO_URL}" class="logo-img" alt="DeeperVault UK Logo">
+    <h2 style="margin: 0; line-height: 1.2;">DeeperVault UK Legacy Builder</h2>
     <p style="font-size: 0.9rem; color: #666; margin: 0; line-height: 1.2;">Preserve Your Legacy • Share Your Story</p>
 </div>
 """, unsafe_allow_html=True)
@@ -573,20 +591,20 @@ with st.sidebar:
     # SECTION 10B: SIDEBAR - NAVIGATION CONTROLS
     # ============================================================================
     st.divider()
-    st.subheader("Question Navigation")
+    st.subheader("Topic Navigation")
     
     current_session = SESSIONS[st.session_state.current_session]
-    st.markdown(f'<div class="question-counter">Question {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="question-counter">Topic {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Previous", disabled=st.session_state.current_question == 0, key="prev_q_sidebar"):
+        if st.button("← Previous Topic", disabled=st.session_state.current_question == 0, key="prev_q_sidebar"):
             st.session_state.current_question = max(0, st.session_state.current_question - 1)
             st.session_state.editing = None
             st.rerun()
     
     with col2:
-        if st.button("Next →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1, key="next_q_sidebar"):
+        if st.button("Next Topic →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1, key="next_q_sidebar"):
             st.session_state.current_question = min(len(current_session["questions"]) - 1, st.session_state.current_question + 1)
             st.session_state.editing = None
             st.rerun()
@@ -595,7 +613,7 @@ with st.sidebar:
     st.subheader("Session Navigation")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Prev Session", disabled=st.session_state.current_session == 0, key="prev_session_sidebar"):
+        if st.button("← Previous Session", disabled=st.session_state.current_session == 0, key="prev_session_sidebar"):
             st.session_state.current_session = max(0, st.session_state.current_session - 1)
             st.session_state.current_question = 0
             st.session_state.editing = None
@@ -743,21 +761,21 @@ with col1:
         st.markdown('<p class="ghostwriter-tag">Standard Interview Mode</p>', unsafe_allow_html=True)
         
 with col2:
-    st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Question {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Topic {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
 with col3:
     nav_col1, nav_col2 = st.columns(2)
     with nav_col1:
-        if st.button("← Prev", disabled=st.session_state.current_question == 0, key="prev_q_quick"):
+        if st.button("← Previous Topic", disabled=st.session_state.current_question == 0, key="prev_q_quick", use_container_width=True):
             st.session_state.current_question = max(0, st.session_state.current_question - 1)
             st.session_state.editing = None
             st.rerun()
     with nav_col2:
-        if st.button("Next →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1, key="next_q_quick"):
+        if st.button("Next Topic →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1, key="next_q_quick", use_container_width=True):
             st.session_state.current_question = min(len(current_session["questions"]) - 1, st.session_state.current_question + 1)
             st.session_state.editing = None
             st.rerun()
 
-# Show current question
+# Show current topic
 st.markdown(f"""
 <div class="question-box">
     {current_question_text}
@@ -771,15 +789,15 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Questions progress
+# Topics progress
 session_data = st.session_state.responses.get(current_session_id, {})
-questions_answered = len(session_data.get("questions", {}))
-total_questions = len(current_session["questions"])
+topics_answered = len(session_data.get("questions", {}))
+total_topics = len(current_session["questions"])
 
-if total_questions > 0:
-    question_progress = questions_answered / total_questions
-    st.progress(min(question_progress, 1.0))
-    st.caption(f"📝 Questions answered: {questions_answered}/{total_questions} ({question_progress*100:.0f}%)")
+if total_topics > 0:
+    topic_progress = topics_answered / total_topics
+    st.progress(min(topic_progress, 1.0))
+    st.caption(f"📝 Topics explored: {topics_answered}/{total_topics} ({topic_progress*100:.0f}%)")
 
 # ============================================================================
 # SECTION 12: CONVERSATION DISPLAY AND CHAT INPUT
@@ -793,13 +811,14 @@ if current_session_id not in st.session_state.session_conversations:
 conversation = st.session_state.session_conversations[current_session_id].get(current_question_text, [])
 
 if not conversation:
-    with st.chat_message("assistant"):
+    # Custom avatar for ghostwriter
+    with st.chat_message("assistant", avatar="👔"):
         if st.session_state.ghostwriter_mode:
-            welcome_msg = f"""Let's explore this question properly: **{current_question_text}**
+            welcome_msg = f"""Let's explore this topic in detail: **{current_question_text}**
 
 Take your time with this—good biographies are built from thoughtful reflection rather than quick answers."""
         else:
-            welcome_msg = f"I'd love to hear your thoughts about this question: **{current_question_text}**"
+            welcome_msg = f"I'd love to hear your thoughts about this topic: **{current_question_text}**"
         
         st.markdown(welcome_msg)
         conversation.append({"role": "assistant", "content": welcome_msg})
@@ -807,13 +826,15 @@ Take your time with this—good biographies are built from thoughtful reflection
 else:
     for i, message in enumerate(conversation):
         if message["role"] == "assistant":
-            with st.chat_message("assistant"):
+            # Custom avatar for ghostwriter
+            with st.chat_message("assistant", avatar="👔"):
                 st.markdown(message["content"])
         
         elif message["role"] == "user":
             is_editing = (st.session_state.editing == (current_session_id, current_question_text, i))
             
-            with st.chat_message("user"):
+            # Custom avatar for storyteller
+            with st.chat_message("user", avatar="👤"):
                 if is_editing:
                     # Edit mode
                     new_text = st.text_area(
@@ -880,11 +901,12 @@ with input_container:
         conversation.append({"role": "user", "content": user_input})
         
         # Generate AI response with expert critique
-        with st.chat_message("assistant"):
+        # Custom avatar for ghostwriter
+        with st.chat_message("assistant", avatar="👔"):
             with st.spinner("Reflecting on your story..."):
                 try:
                     # First, analyze the user's response for critique
-                    critique_prompt = f"""As a professional ghostwriter, analyze this response to the question: "{current_question_text}"
+                    critique_prompt = f"""As a professional ghostwriter, analyze this response to the topic: "{current_question_text}"
 
 USER'S RESPONSE:
 {user_input}
@@ -1053,6 +1075,6 @@ with col2:
     completed_sessions = sum(1 for s in SESSIONS if st.session_state.responses[s["id"]].get("completed", False))
     st.metric("Completed Sessions", f"{completed_sessions}/{len(SESSIONS)}")
 with col3:
-    total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
-    total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
-    st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+    total_topics_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
+    total_all_topics = sum(len(s["questions"]) for s in SESSIONS)
+    st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
