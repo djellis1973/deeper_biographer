@@ -17,7 +17,42 @@ def get_real_user_stories(user_name):
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
         
-        # Query to get all responses for this user
+        # DEBUG: Check what's in the database
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        st.write(f"🔍 **Debug: Found tables:** {tables}")
+        
+        # Check if responses table exists
+        if ('responses',) in tables:
+            st.success("✅ Found 'responses' table!")
+            
+            # Show table structure
+            cursor.execute("PRAGMA table_info(responses);")
+            columns = cursor.fetchall()
+            st.write(f"📋 **Table columns:** {[col[1] for col in columns]}")
+            
+            # Show all users in database
+            cursor.execute("SELECT DISTINCT user_id FROM responses;")
+            users = cursor.fetchall()
+            st.write(f"👥 **Users in database:** {[user[0] for user in users]}")
+            
+            # Show count of stories for this user
+            cursor.execute("SELECT COUNT(*) FROM responses WHERE user_id = ?", (user_name,))
+            count = cursor.fetchone()[0]
+            st.write(f"📊 **Stories for '{user_name}':** {count}")
+            
+            if count > 0:
+                # Show sample of what we'll retrieve
+                cursor.execute("SELECT session_id, question, answer, timestamp FROM responses WHERE user_id = ? LIMIT 2", (user_name,))
+                samples = cursor.fetchall()
+                st.write(f"📝 **Sample stories:**")
+                for session_id, question, answer, timestamp in samples:
+                    st.write(f"  - Session {session_id}: '{question[:50]}...'")
+        else:
+            st.error("❌ 'responses' table not found in database!")
+            return []
+        
+        # Query to get all responses for this user (EXACT MATCH to your main app)
         cursor.execute("""
             SELECT session_id, question, answer, timestamp 
             FROM responses 
@@ -29,6 +64,8 @@ def get_real_user_stories(user_name):
         
         stories = cursor.fetchall()
         conn.close()
+        
+        st.write(f"✅ **Query successful! Found {len(stories)} raw records**")
         
         # Format the data
         formatted_stories = []
@@ -44,6 +81,8 @@ def get_real_user_stories(user_name):
         
     except Exception as e:
         st.error(f"⚠️ Database error: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return []
 
 # ============================================================================
@@ -83,7 +122,7 @@ st.markdown("### 🔍 Find Your Real Stories")
 st.write("**Enter your exact name** as used in the main interview app:")
 
 # User input
-user_name = st.text_input("**Your Name:**", key="real_name", placeholder="e.g., John Smith")
+user_name = st.text_input("**Your Name:**", key="real_name", placeholder="e.g., David Ellis")
 
 # Search button
 if st.button("🔎 Search Database", type="primary"):
@@ -118,8 +157,9 @@ if st.button("🔎 Search Database", type="primary"):
                 st.info("""
                 **Tips:**
                 1. Use the **exact name** from your main app
-                2. Check capitalization (John vs john)
+                2. Check capitalization (David vs david)
                 3. Make sure you've saved stories in the main app first
+                4. Wait a moment after saving in main app before checking here
                 """)
     else:
         st.info("Please enter your name first.")
@@ -162,4 +202,4 @@ if 'real_stories' in st.session_state and st.session_state.real_stories:
 # 5. FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("📊 **Connected to real database** | Reads actual interview responses")
+st.caption("📊 **Connected to real database** | Debug mode active")
