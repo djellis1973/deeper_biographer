@@ -1089,4 +1089,23 @@ with col3:
     total_all_topics = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 
+# ============================================================================
+# SECTION: PUBLISH YOUR BIOGRAPHY (STREAMLIT BUTTON)
+# ============================================================================
+st.divider()
+st.subheader("📖 Ready to Publish Your Biography?")
+
+st.markdown("""
+Click below to open the Biography Publisher in a new tab.
+There you can compile all your stories into a formatted book.
+""")
+
+publisher_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
+
+if st.button("🖨️ Open Biography Publisher", type="primary", use_container_width=True):
+    st.markdown(f'<meta http-equiv="refresh" content="0; url={publisher_url}">', 
+                unsafe_allow_html=True)
+    st.success("Opening publisher... If nothing happens, [click here](%s)" % publisher_url)
+
+st.caption("Your interview progress is automatically saved. You can return here anytime.")
 
