@@ -8,6 +8,36 @@ st.set_page_config(page_title="Biography Publisher", layout="wide")
 st.title("📖 Legacy Biography Publisher")
 
 # ============================================================================
+# 0. CREATE DATABASE IF IT DOESN'T EXIST
+# ============================================================================
+def ensure_database_exists():
+    """Make sure the database and table exist"""
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        
+        # Create the table if it doesn't exist (EXACT match to your main app)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS responses (
+                user_id TEXT,
+                session_id INTEGER,
+                question TEXT,
+                answer TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"❌ Failed to create database: {str(e)}")
+        return False
+
+# Call this immediately
+ensure_database_exists()
+
+# ============================================================================
 # 1. FUNCTION TO GET REAL DATA FROM YOUR DATABASE
 # ============================================================================
 def get_real_user_stories(user_name):
@@ -16,6 +46,25 @@ def get_real_user_stories(user_name):
         # Connect to your shared database
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
+        
+        # DEBUG: Show what's in the database
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        st.write(f"🔍 **Debug: Tables in database:** {tables}")
+        
+        if ('responses',) in tables:
+            # Show all users in database
+            cursor.execute("SELECT DISTINCT user_id FROM responses")
+            all_users = cursor.fetchall()
+            st.write(f"👥 **Debug: All users in database:** {[u[0] for u in all_users]}")
+            
+            # Check count for this user
+            cursor.execute("SELECT COUNT(*) FROM responses WHERE user_id = ?", (user_name,))
+            count = cursor.fetchone()[0]
+            st.write(f"📊 **Debug: Found {count} stories for '{user_name}'**")
+            
+            if count == 0 and all_users:
+                st.info(f"💡 **Hint:** Try one of these names: {[u[0] for u in all_users]}")
         
         # Query to get all responses for this user
         cursor.execute("""
@@ -134,10 +183,10 @@ if st.button("🔎 Search Database", type="primary"):
             else:
                 st.warning(f"❌ No stories found for '{user_name}'.")
                 st.info("""
-                **Possible reasons:**
-                1. Use the **exact name** from your main app (check capitalization)
-                2. Make sure you've saved stories in the main app first
-                3. Wait a moment after saving before checking here
+                **Tips:**
+                1. Use the **exact name** from your main app
+                2. Check capitalization (David vs david)
+                3. Make sure you've saved stories in the main app first
                 """)
     else:
         st.info("Please enter your name first.")
