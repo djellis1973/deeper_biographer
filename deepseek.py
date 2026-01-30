@@ -9,13 +9,10 @@ import os
 import sqlite3
 import re  # For word counting
 import tempfile  # For handling audio files
-from spellchecker import SpellChecker  # For spelling correction
+# REMOVED: from spellchecker import SpellChecker  # No longer needed
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
-
-# Initialize spell checker
-spell = SpellChecker()
 
 # ============================================================================
 # SECTION 2: CSS STYLING AND VISUAL DESIGN
@@ -456,16 +453,24 @@ def check_spelling_openai(text):
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Fix spelling and grammar mistakes in the following text. Return the corrected version."},
+                {"role": "system", "content": "Fix spelling and grammar mistakes in the following text. Return only the corrected text."},
                 {"role": "user", "content": text}
             ],
             max_tokens=len(text) + 100,
             temperature=0.1
         )
         corrected_text = response.choices[0].message.content
-        return corrected_text, ["Text corrected by AI"]
+        # Simple comparison to find changes
+        original_words = text.split()
+        corrected_words = corrected_text.split()
+        suggestions = []
+        
+        if original_words != corrected_words:
+            suggestions.append(("Text has been corrected", "See corrected version above"))
+        
+        return corrected_text, suggestions
     except Exception as e:
-        st.warning(f"Spell check unavailable: {e}")
+        # If OpenAI fails, return original text
         return text, []
 
 def auto_correct_text(text):
@@ -475,7 +480,6 @@ def auto_correct_text(text):
     
     corrected_text, _ = check_spelling_openai(text)
     return corrected_text
-
 # ============================================================================
 # SECTION 8: GHOSTWRITER PROMPT FUNCTION
 # ============================================================================
@@ -1202,3 +1206,4 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[ch["id"]].get("questions", {})) for ch in CHAPTERS)
     total_all_questions = sum(len(ch["questions"]) for ch in CHAPTERS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
