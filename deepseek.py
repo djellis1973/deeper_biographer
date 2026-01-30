@@ -9,7 +9,6 @@ import os
 import sqlite3
 import re  # For word counting
 import tempfile  # For handling audio files
-# REMOVED: from spellchecker import SpellChecker  # No longer needed
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
@@ -383,13 +382,14 @@ def calculate_chapter_word_count(chapter_id):
     return total_words
 
 def get_traffic_light(chapter_id):
+    # ALWAYS get target from session state, not hardcoded
     current_count = calculate_chapter_word_count(chapter_id)
     target = st.session_state.responses[chapter_id].get("word_target", 500)
     
     if target == 0:
         return "#2ecc71", "🟢", 100
     
-    progress = (current_count / target) * 100
+    progress = (current_count / target) * 100 if target > 0 else 100
     
     if progress >= 100:
         return "#2ecc71", "🟢", progress
@@ -477,7 +477,6 @@ def check_spelling_openai(text):
             
     except Exception as e:
         # If OpenAI fails, return original text
-        st.warning(f"Spell check unavailable: {str(e)}")
         return text, []
 
 def auto_correct_text(text):
@@ -487,6 +486,7 @@ def auto_correct_text(text):
     
     corrected_text, _ = check_spelling_openai(text)
     return corrected_text
+
 # ============================================================================
 # SECTION 8: GHOSTWRITER PROMPT FUNCTION
 # ============================================================================
@@ -638,9 +638,9 @@ with st.sidebar:
         st.rerun()
     
     spellcheck_enabled = st.toggle(
-        "Auto Spelling Check",
+        "Auto Spelling Correction",
         value=st.session_state.spellcheck_enabled,
-        help="Check and suggest spelling corrections as you type"
+        help="Automatically correct spelling and grammar as you type"
     )
     
     if spellcheck_enabled != st.session_state.spellcheck_enabled:
@@ -654,15 +654,15 @@ with st.sidebar:
     
     st.divider()
     
-       # ============================================================================
-    # SECTION 10A: SIDEBAR - WORD COUNT SETTINGS (NEW CLEARLY MARKED SECTION)
     # ============================================================================
-    st.header("📊 Word Count Settings")
+    # SECTION 10A: SIDEBAR - CHAPTER PROGRESS (WITH EDIT BUTTON ON PROGRESS BAR)
+    # ============================================================================
+    st.header("📖 Chapter Progress")
     
     for i, chapter in enumerate(CHAPTERS):
         chapter_id = chapter["id"]
         
-        # Get current values
+        # Get current values from session state
         target_words = st.session_state.responses[chapter_id].get("word_target", 500)
         word_count = calculate_chapter_word_count(chapter_id)
         color, emoji, progress = get_traffic_light(chapter_id)
@@ -688,30 +688,29 @@ with st.sidebar:
             st.session_state.editing = None
             st.rerun()
         
-        # Progress bar and word count display
+        # Progress bar with edit button on it
         if target_words > 0:
             progress_bar = min(word_count / target_words, 1.0)
-            st.progress(progress_bar)
             
-            # Display with traffic light emoji
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.caption(f"{emoji} {word_count}/{target_words} words")
-            with col2:
-                st.caption(f"{progress:.0f}%")
-            with col3:
+            # Create columns for progress bar and edit button
+            col_progress, col_edit = st.columns([4, 1])
+            
+            with col_progress:
+                st.progress(progress_bar)
+                st.caption(f"📝 {word_count}/{target_words} words ({progress:.0f}%)")
+            
+            with col_edit:
                 if st.button("✏️", key=f"edit_target_{chapter_id}", help="Edit word target"):
                     st.session_state[f"editing_target_{chapter_id}"] = True
         
-        # Edit target input section
+        # Edit target input section (appears when edit button clicked)
         if st.session_state.get(f"editing_target_{chapter_id}"):
             new_target = st.number_input(
                 f"Target words for Chapter {chapter_id}:",
                 min_value=100,
                 max_value=5000,
                 value=target_words,
-                key=f"target_input_{chapter_id}",
-                label_visibility="collapsed"
+                key=f"target_input_{chapter_id}"
             )
             
             col_save, col_cancel = st.columns(2)
@@ -731,6 +730,7 @@ with st.sidebar:
     # ============================================================================
     # SECTION 10B: SIDEBAR - NAVIGATION CONTROLS
     # ============================================================================
+    st.divider()
     st.subheader("Question Navigation")
     
     current_chapter = CHAPTERS[st.session_state.current_chapter]
@@ -872,9 +872,9 @@ with col3:
             st.session_state.editing = None
             st.rerun()
 
-# WORD COUNT DISPLAY - SYNCHRONIZED WITH SIDEBAR
+# WORD COUNT DISPLAY - NOW PROPERLY SYNCHRONIZED
 current_word_count = calculate_chapter_word_count(current_chapter_id)
-# FIXED: Use the session state target from sidebar edits
+# FIXED: Uses session state which updates when sidebar edits are saved
 target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
 color, emoji, progress_percent = get_traffic_light(current_chapter_id)
 
@@ -882,34 +882,42 @@ color, emoji, progress_percent = get_traffic_light(current_chapter_id)
 remaining_words = max(0, target_words - current_word_count)
 status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
 
-st.markdown(f"""
-<div class="word-count-box">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <div>
-            <h4 style="margin: 0; display: flex; align-items: center;">
-                <span class="traffic-light" style="background-color: {color};"></span>
-                Word Progress: {current_word_count} / {target_words}
-            </h4>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
-                {emoji} {progress_percent:.0f}% complete • {status_text}
-            </p>
+# Add edit button directly on the word count box
+col_word1, col_word2 = st.columns([4, 1])
+with col_word1:
+    st.markdown(f"""
+    <div class="word-count-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div>
+                <h4 style="margin: 0; display: flex; align-items: center;">
+                    <span class="traffic-light" style="background-color: {color};"></span>
+                    Word Progress: {current_word_count} / {target_words}
+                </h4>
+                <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
+                    {emoji} {progress_percent:.0f}% complete • {status_text}
+                </p>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 1.5rem; font-weight: bold;">{emoji}</div>
+                <div style="font-size: 0.8rem; color: #666;">Status</div>
+            </div>
         </div>
-        <div style="text-align: center;">
-            <div style="font-size: 1.5rem; font-weight: bold;">{emoji}</div>
-            <div style="font-size: 0.8rem; color: #666;">Status</div>
+        <div style="margin-top: 1rem;">
+            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; overflow: hidden;">
+                <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 6px; transition: width 0.3s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.8rem; color: #666;">
+                <span>0</span>
+                <span>Target: {target_words}</span>
+            </div>
         </div>
     </div>
-    <div style="margin-top: 1rem;">
-        <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; overflow: hidden;">
-            <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 6px; transition: width 0.3s ease;"></div>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.8rem; color: #666;">
-            <span>0</span>
-            <span>Target: {target_words}</span>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+
+with col_word2:
+    if st.button("✏️ Edit", key="edit_main_target", help="Edit word target for this chapter"):
+        st.session_state[f"editing_target_{current_chapter_id}"] = True
+        st.rerun()
 
 # Questions progress
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
@@ -921,98 +929,73 @@ if total_questions > 0:
     st.progress(min(question_progress, 1.0))
     st.caption(f"📝 Questions answered: {questions_answered}/{total_questions} ({question_progress*100:.0f}%)")
 
+# Show chapter guidance
+st.markdown(f"""
+<div class="chapter-guidance">
+    {current_chapter.get('guidance', '')}
+</div>
+""", unsafe_allow_html=True)
+
+# Show current question
+st.markdown(f"""
+<div class="question-box">
+    {current_question_text}
+</div>
+""", unsafe_allow_html=True)
+
 # ============================================================================
-# SECTION 12: AUTOMATIC SPEECH-TO-TEXT WITH WHISPER API
+# SECTION 12: SIMPLIFIED AUTOMATIC SPEECH-TO-TEXT
 # ============================================================================
 if st.session_state.show_speech:
     st.markdown("### 🎤 Speak Your Answer")
     st.markdown("""
     <div class="audio-recording">
-        <strong>Automatic Speech-to-Text:</strong>
-        <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-            <li>Record your answer - Whisper AI will transcribe it automatically</li>
-            <li>Transcription appears below for review and editing</li>
-            <li>Click "Use This Answer" to add it directly to the conversation</li>
-            <li>Works with any microphone in your browser</li>
-        </ul>
+        <strong>One-Click Speech-to-Text:</strong>
+        <ol style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
+            <li><strong>Click the microphone below</strong> to start recording</li>
+            <li><strong>Speak your answer</strong> clearly</li>
+            <li><strong>Click stop</strong> when finished (or wait 5 seconds)</li>
+            <li><strong>Your answer will be automatically transcribed and added</strong> to the conversation</li>
+        </ol>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
+            No extra steps needed - it's fully automatic!
+        </p>
     </div>
     """, unsafe_allow_html=True)
     
     # Streamlit's built-in audio input
     audio_bytes = st.audio_input(
-        "Click to record your answer:",
+        "🎤 Click to record (speak, then wait for auto-transcription)",
         key=f"audio_input_{current_chapter_id}_{st.session_state.current_question}"
     )
     
-    if audio_bytes:
-        # Display the recorded audio
-        st.audio(audio_bytes, format="audio/wav")
-        
-        # Auto-transcribe using Whisper API
-        if not st.session_state.audio_transcribed:
-            with st.spinner("Transcribing with Whisper AI..."):
-                transcribed_text = transcribe_audio(audio_bytes)
-                if transcribed_text:
-                    st.session_state.pending_transcription = transcribed_text
-                    st.session_state.audio_transcribed = True
-                    st.rerun()
-    
-    # Show transcribed text for editing
-    if st.session_state.pending_transcription:
-        st.markdown("### 📝 Transcribed Text")
-        st.markdown('<div class="transcription-box">', unsafe_allow_html=True)
-        
-        # Text area with spell checking
-        transcribed_text = st.text_area(
-            "Edit your transcribed answer:",
-            value=st.session_state.pending_transcription,
-            height=200,
-            key="transcription_edit",
-            help="Edit the transcription before adding it to your story"
-        )
-        
-        # Spelling check for transcribed text
-        if transcribed_text and st.session_state.spellcheck_enabled:
-            _, suggestions = check_spelling(transcribed_text)
-            if suggestions:
-                st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
-                st.write("**Spelling suggestions:**")
-                for wrong, correct in suggestions[:3]:  # Show top 3 suggestions
-                    st.write(f"• '{wrong}' → '{correct}'")
-                st.markdown('</div>', unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            if st.button("✅ Use This Answer", type="primary", use_container_width=True):
-                # Auto-correct spelling if enabled
+    # Auto-transcribe when audio is recorded
+    if audio_bytes and not st.session_state.audio_transcribed:
+        with st.spinner("🎤 Transcribing your speech..."):
+            transcribed_text = transcribe_audio(audio_bytes)
+            if transcribed_text:
+                # Auto-correct if spell check is enabled
                 if st.session_state.spellcheck_enabled:
-                    corrected_text = auto_correct_text(transcribed_text)
-                    st.session_state.auto_submit_text = corrected_text
-                else:
-                    st.session_state.auto_submit_text = transcribed_text
+                    transcribed_text = auto_correct_text(transcribed_text)
                 
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
+                # Auto-submit directly
+                st.session_state.auto_submit_text = transcribed_text
+                st.session_state.audio_transcribed = True
+                st.success("✅ Speech transcribed and ready to add!")
                 st.rerun()
-        
-        with col2:
-            if st.button("🔄 Re-transcribe", type="secondary", use_container_width=True):
-                st.session_state.audio_transcribed = False
-                st.session_state.pending_transcription = None
-                st.rerun()
-        
-        with col3:
-            if st.button("❌ Cancel", type="secondary", use_container_width=True):
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
-                st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Show what was transcribed (briefly)
+    if st.session_state.audio_transcribed and st.session_state.auto_submit_text:
+        st.info(f"**Transcribed:** {st.session_state.auto_submit_text[:100]}...")
+        if st.button("🔄 Record Again", key="record_again"):
+            st.session_state.audio_transcribed = False
+            st.session_state.auto_submit_text = None
+            st.rerun()
     
     st.markdown("---")
 
 # ============================================================================
-# SECTION 13: CONVERSATION DISPLAY WITH SPELL CHECKING
+# SECTION 13: CONVERSATION DISPLAY WITH AUTO-SPELLING
 # ============================================================================
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
@@ -1047,7 +1030,7 @@ else:
             
             with st.chat_message("user"):
                 if is_editing:
-                    # Edit mode with spell checking
+                    # Edit mode with automatic spelling correction
                     new_text = st.text_area(
                         "Edit your answer:",
                         value=st.session_state.edit_text,
@@ -1056,17 +1039,12 @@ else:
                         label_visibility="collapsed"
                     )
                     
-                    # Real-time spell checking while editing
-                    if new_text and st.session_state.spellcheck_enabled:
-                        corrected_text, suggestions = check_spelling_openai(new_text)
-                        if suggestions and corrected_text != new_text:
-                            st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
-                            st.write("**Spelling/grammar suggestions available**")
-                            st.write(f"*Corrected version:* {corrected_text[:200]}...")
-                            if st.button("Apply Correction", key=f"apply_correction_{i}"):
-                                new_text = corrected_text
-                                st.rerun()
-                            st.markdown('</div>', unsafe_allow_html=True)
+                    # Auto-correct as they type (if enabled)
+                    if new_text and st.session_state.spellcheck_enabled and new_text != st.session_state.edit_text:
+                        corrected_text = auto_correct_text(new_text)
+                        if corrected_text != new_text:
+                            st.info(f"✓ Auto-corrected: {corrected_text[:100]}...")
+                            new_text = corrected_text
                     
                     if new_text:
                         edit_word_count = len(re.findall(r'\w+', new_text))
@@ -1075,7 +1053,7 @@ else:
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("✓ Save", key=f"save_{current_chapter_id}_{hash(current_question_text)}_{i}", type="primary"):
-                            # Auto-correct before saving if enabled
+                            # Final auto-correction before saving
                             if st.session_state.spellcheck_enabled:
                                 new_text = auto_correct_text(new_text)
                             
@@ -1101,7 +1079,7 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 14: CHAT INPUT WITH AUTO-SUBMIT AND SPELL CHECKING
+# SECTION 14: CHAT INPUT WITH AUTO-SUBMIT AND AUTO-SPELLING
 # ============================================================================
 if st.session_state.editing is None:
     user_input = None
@@ -1109,24 +1087,25 @@ if st.session_state.editing is None:
     # Check for auto-submitted text from speech
     if st.session_state.auto_submit_text:
         user_input = st.session_state.auto_submit_text
-        del st.session_state.auto_submit_text
+        # Auto-correct if enabled
+        if st.session_state.spellcheck_enabled:
+            user_input = auto_correct_text(user_input)
+        # Clear the flag
+        st.session_state.auto_submit_text = None
+        st.session_state.audio_transcribed = False
     else:
-        # Regular chat input with spell checking
+        # Regular chat input with auto-spelling
         chat_input_container = st.container()
         with chat_input_container:
             user_input = st.chat_input("Type your answer here...")
             
-            # Show spelling suggestions above input
+            # Auto-correct as they type (display only, not applied yet)
             if user_input and st.session_state.spellcheck_enabled:
-                corrected_text, suggestions = check_spelling_openai(user_input)
-                if suggestions and corrected_text != user_input:
-                    st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
-                    st.write("**Suggested correction:**")
-                    st.write(f"*{corrected_text}*")
-                    if st.button("Use Corrected Version", key="use_corrected"):
-                        user_input = corrected_text
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+                corrected_text = auto_correct_text(user_input)
+                if corrected_text != user_input:
+                    st.info(f"✓ Auto-corrected version: {corrected_text}")
+                    # Auto-apply the correction
+                    user_input = corrected_text
     
     if user_input:
         current_chapter_id = current_chapter["id"]
@@ -1140,7 +1119,7 @@ if st.session_state.editing is None:
         
         conversation = st.session_state.chapter_conversations[current_chapter_id][current_question_text]
         
-        # Auto-correct before adding to conversation
+        # Final auto-correction before adding to conversation
         if st.session_state.spellcheck_enabled:
             user_input = auto_correct_text(user_input)
         
@@ -1201,6 +1180,7 @@ if st.session_state.editing is None:
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         
         st.rerun()
+
 # ============================================================================
 # SECTION 15: FOOTER WITH STATISTICS
 # ============================================================================
@@ -1216,5 +1196,6 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[ch["id"]].get("questions", {})) for ch in CHAPTERS)
     total_all_questions = sum(len(ch["questions"]) for ch in CHAPTERS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
 
 
