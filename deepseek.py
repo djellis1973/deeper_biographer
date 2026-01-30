@@ -1100,10 +1100,10 @@ current_user = st.session_state.get('user_id', '')
 
 # Create a URL with the name as a parameter
 publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
-# Pass the name in the URL - no complex encoding, just simple & safe
+# Pass the name in the URL
 publisher_url = f"{publisher_base_url}?name={current_user}"
 
-if current_user:
+if current_user and current_user != "Guest":
     st.markdown(f"""
     Your stories are saved as **{current_user}**.
     
