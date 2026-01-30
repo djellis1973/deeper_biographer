@@ -1,116 +1,56 @@
-# biography_publisher.py - REAL PUBLISHER WITH AUTO-FILLED NAME
+# biography_publisher.py - PUBLISHER THAT READS DATA FROM URL
 import streamlit as st
-import sqlite3
+import json
+import base64
 from datetime import datetime
 
 # Page setup
 st.set_page_config(page_title="Biography Publisher", layout="wide")
 st.title("📖 Legacy Biography Publisher")
 
-# ============================================================================
-# 0. CREATE DATABASE IF IT DOESN'T EXIST
-# ============================================================================
-def ensure_database_exists():
-    """Make sure the database and table exist"""
+def decode_stories_from_url():
+    """Extract stories from URL parameter"""
     try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
+        query_params = st.experimental_get_query_params()
+        encoded_data = query_params.get("data", [None])[0]
         
-        # Create the table if it doesn't exist (EXACT match to your main app)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS responses (
-                user_id TEXT,
-                session_id INTEGER,
-                question TEXT,
-                answer TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        st.error(f"❌ Failed to create database: {str(e)}")
-        return False
-
-# Call this immediately
-ensure_database_exists()
-
-# ============================================================================
-# 1. FUNCTION TO GET REAL DATA FROM YOUR DATABASE
-# ============================================================================
-def get_real_user_stories(user_name):
-    """Get ACTUAL stories from your life_story.db database"""
-    try:
-        # Connect to your shared database
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        
-        # DEBUG: Show what's in the database
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = cursor.fetchall()
-        st.write(f"🔍 **Debug: Tables in database:** {tables}")
-        
-        if ('responses',) in tables:
-            # Show all users in database
-            cursor.execute("SELECT DISTINCT user_id FROM responses")
-            all_users = cursor.fetchall()
-            st.write(f"👥 **Debug: All users in database:** {[u[0] for u in all_users]}")
+        if not encoded_data:
+            return None
             
-            # Check count for this user
-            cursor.execute("SELECT COUNT(*) FROM responses WHERE user_id = ?", (user_name,))
-            count = cursor.fetchone()[0]
-            st.write(f"📊 **Debug: Found {count} stories for '{user_name}'**")
-            
-            if count == 0 and all_users:
-                st.info(f"💡 **Hint:** Try one of these names: {[u[0] for u in all_users]}")
+        # Decode the data
+        json_data = base64.b64decode(encoded_data).decode()
+        stories_data = json.loads(json_data)
         
-        # Query to get all responses for this user
-        cursor.execute("""
-            SELECT session_id, question, answer, timestamp 
-            FROM responses 
-            WHERE user_id = ? 
-            AND answer IS NOT NULL 
-            AND answer != ''
-            ORDER BY session_id, timestamp
-        """, (user_name,))
-        
-        stories = cursor.fetchall()
-        conn.close()
-        
-        # Format the data
-        formatted_stories = []
-        for session_id, question, answer, timestamp in stories:
-            formatted_stories.append({
-                "session": f"Chapter {session_id}",
-                "question": question,
-                "answer": answer,
-                "date": timestamp[:10] if timestamp else ""
-            })
-        
-        return formatted_stories
-        
-    except Exception as e:
-        st.error(f"⚠️ Database error: {str(e)}")
-        return []
+        return stories_data
+    except:
+        return None
 
-# ============================================================================
-# 2. FUNCTION TO CREATE BIOGRAPHY
-# ============================================================================
-def create_real_biography(stories, author_name):
-    """Create biography from REAL user stories"""
-    if not stories:
-        return "No stories found to publish."
+def create_biography_from_data(stories_data):
+    """Create biography from the provided data"""
+    user_name = stories_data.get("user", "Unknown")
+    stories_dict = stories_data.get("stories", {})
     
-    bio_text = f"# The Life Story of {author_name}\n\n"
+    bio_text = f"# The Life Story of {user_name}\n\n"
     bio_text += f"_Compiled on {datetime.now().strftime('%B %d, %Y')}_\n\n"
     bio_text += "---\n\n"
     
-    # Group by session
+    # Format all stories
+    all_stories = []
+    for session_id, session_data in sorted(stories_dict.items()):
+        session_title = session_data.get("title", f"Chapter {session_id}")
+        
+        for question, answer_data in session_data.get("questions", {}).items():
+            all_stories.append({
+                "session": session_title,
+                "question": question,
+                "answer": answer_data.get("answer", ""),
+                "date": answer_data.get("timestamp", "")[:10]
+            })
+    
+    # Add to biography
     current_session = None
     story_count = 0
-    for story in stories:
+    for story in all_stories:
         story_count += 1
         if story["session"] != current_session:
             bio_text += f"## {story['session']}\n\n"
@@ -120,113 +60,129 @@ def create_real_biography(stories, author_name):
         bio_text += f"{story['answer']}\n\n"
     
     bio_text += "---\n\n"
-    bio_text += f"*This personal biography contains {story_count} stories across {len(set(s['session'] for s in stories))} chapters.*\n"
+    bio_text += f"*This personal biography contains {story_count} stories across {len(set(s['session'] for s in all_stories))} chapters.*\n"
     bio_text += "*Created to preserve your unique legacy.*"
     
-    return bio_text
+    return bio_text, all_stories, user_name
 
 # ============================================================================
-# 3. MAIN APP INTERFACE WITH URL PARAMETER SUPPORT
+# MAIN APP INTERFACE
 # ============================================================================
-st.markdown("### 🔍 Find Your Real Stories")
+st.markdown("### 🔍 Your Biography Generator")
 
-# Try to get name from URL parameters first
-try:
-    query_params = st.experimental_get_query_params()
-    url_name = query_params.get("name", [None])[0]
-except:
-    url_name = None
+# Try to get data from URL first
+stories_data = decode_stories_from_url()
 
-# User input - pre-fill if name came from URL
-if url_name:
-    st.info(f"📋 Name received from main app: **{url_name}**")
-    # Pre-fill the input with the URL parameter
-    user_name = st.text_input("**Your Name:**", value=url_name, key="real_name")
-    auto_filled = True
-else:
-    st.write("**Enter your exact name** as used in the main interview app:")
-    user_name = st.text_input("**Your Name:**", key="real_name", placeholder="e.g., David Ellis")
-    auto_filled = False
-
-# Search button
-if st.button("🔎 Search Database", type="primary"):
-    if user_name:
-        with st.spinner("Searching database..."):
-            # Get REAL stories from database
-            real_stories = get_real_user_stories(user_name)
-            
-            if real_stories:
-                st.session_state.real_stories = real_stories
-                st.session_state.real_author = user_name
-                
-                if auto_filled:
-                    st.success(f"✅ Found **{len(real_stories)}** stories for you, **{user_name}**!")
-                else:
-                    st.success(f"✅ Found **{len(real_stories)}** real story(s) for **{user_name}**!")
-                
-                # Show quick stats
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Total Stories", len(real_stories))
-                with col2:
-                    sessions = len(set(s["session"] for s in real_stories))
-                    st.metric("Chapters", sessions)
-                
-                # Show preview
-                with st.expander("📋 Preview First 3 Stories", expanded=True):
-                    for i, story in enumerate(real_stories[:3]):
-                        st.markdown(f"**{story['session']}**")
-                        st.markdown(f"*{story['question']}*")
-                        st.write(story['answer'][:150] + "..." if len(story['answer']) > 150 else story['answer'])
-                        if i < 2:
-                            st.divider()
-            else:
-                st.warning(f"❌ No stories found for '{user_name}'.")
-                st.info("""
-                **Tips:**
-                1. Use the **exact name** from your main app
-                2. Check capitalization (David vs david)
-                3. Make sure you've saved stories in the main app first
-                """)
-    else:
-        st.info("Please enter your name first.")
-
-# ============================================================================
-# 4. PUBLISH REAL STORIES
-# ============================================================================
-if 'real_stories' in st.session_state and st.session_state.real_stories:
-    st.markdown("---")
-    st.subheader(f"🚀 Ready to Publish")
+if stories_data:
+    # Auto-process data from URL
+    user_name = stories_data.get("user", "Unknown")
+    story_count = sum(len(session.get("questions", {})) for session in stories_data.get("stories", {}).values())
     
-    if st.button("🖨️ Generate Biography", type="primary", use_container_width=True):
-        with st.spinner("Creating your biography..."):
-            biography = create_real_biography(
-                st.session_state.real_stories,
-                st.session_state.real_author
-            )
+    st.success(f"✅ Welcome, **{user_name}**! Found **{story_count} stories** from your main app.")
+    
+    # Show preview
+    with st.expander("📋 Preview Your Stories", expanded=True):
+        all_stories = []
+        for session_id, session_data in stories_data.get("stories", {}).items():
+            st.markdown(f"**{session_data.get('title', f'Chapter {session_id}')}**")
+            for question, answer_data in session_data.get("questions", {}).items():
+                answer = answer_data.get("answer", "")
+                st.write(f"**Q:** {question}")
+                st.write(f"**A:** {answer[:150]}..." if len(answer) > 150 else answer)
+                st.divider()
+                all_stories.append({"question": question, "answer": answer})
+    
+    # Generate biography button
+    if st.button("🖨️ Generate My Biography", type="primary", use_container_width=True):
+        with st.spinner("Creating your beautiful biography..."):
+            biography, all_stories_list, author_name = create_biography_from_data(stories_data)
+        
+        # Show the biography
+        st.subheader("📖 Your Biography")
+        st.markdown(biography)
         
         # Download button
-        safe_name = st.session_state.real_author.replace(" ", "_")
+        safe_name = author_name.replace(" ", "_")
         file_name = f"{safe_name}_Biography.txt"
         
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.download_button(
-                label="📥 Download Biography",
-                data=biography,
-                file_name=file_name,
-                mime="text/plain",
-                type="primary",
-                use_container_width=True
-            )
-        with col2:
-            st.button("🔄 Search Again", on_click=lambda: st.session_state.clear())
+        st.download_button(
+            label="📥 Download Biography",
+            data=biography,
+            file_name=file_name,
+            mime="text/plain",
+            type="primary",
+            use_container_width=True
+        )
         
         st.balloons()
-        st.success("Your **real biography** is ready!")
+        st.success(f"✅ Biography created with **{len(all_stories_list)} stories**!")
+        
+    # Manual upload option as backup
+    st.divider()
+    st.markdown("### 📤 Alternative: Upload Your Export File")
+    st.write("If the link didn't bring your data, upload the JSON file you downloaded from the main app:")
+    
+    uploaded_file = st.file_uploader("Choose your stories JSON file", type=['json'])
+    if uploaded_file:
+        try:
+            uploaded_data = json.load(uploaded_file)
+            st.success(f"✅ Loaded stories for **{uploaded_data.get('user', 'Unknown')}**")
+            
+            if st.button("Generate from Uploaded File", type="secondary"):
+                biography, all_stories_list, author_name = create_biography_from_data(uploaded_data)
+                
+                st.download_button(
+                    label="📥 Download Biography from Upload",
+                    data=biography,
+                    file_name=f"{author_name.replace(' ', '_')}_Biography.txt",
+                    mime="text/plain"
+                )
+        except:
+            st.error("❌ Invalid file format. Please upload the JSON file from the main app.")
+
+else:
+    # No data in URL - show manual options
+    st.info("📋 **How to use this publisher:**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### 🚀 **Automatic Method**
+        1. Go to your main interview app
+        2. Answer some questions
+        3. Click the publisher link at the bottom
+        4. Your data comes automatically!
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### 📤 **Manual Method**
+        1. In main app, use **Export Current Progress**
+        2. Download the JSON file
+        3. Upload it here:
+        """)
+        
+        uploaded_file = st.file_uploader("Upload your stories JSON file", type=['json'])
+        if uploaded_file:
+            try:
+                uploaded_data = json.load(uploaded_file)
+                st.success(f"✅ Loaded stories for **{uploaded_data.get('user', 'Unknown')}**")
+                
+                if st.button("Generate Biography from File", type="primary"):
+                    biography, all_stories_list, author_name = create_biography_from_data(uploaded_data)
+                    
+                    st.download_button(
+                        label="📥 Download Your Biography",
+                        data=biography,
+                        file_name=f"{author_name.replace(' ', '_')}_Biography.txt",
+                        mime="text/plain"
+                    )
+            except:
+                st.error("❌ Invalid file format. Please upload the JSON file from the main app.")
 
 # ============================================================================
-# 5. FOOTER
+# FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("📊 **Connected to real database** | Auto-fill enabled from main app")
+st.caption("✨ **No database needed** • Your data stays private • Works with your existing main app")
