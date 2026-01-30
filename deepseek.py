@@ -8,7 +8,6 @@ from openai import OpenAI
 import os
 import sqlite3
 import re
-import tempfile
 
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
@@ -69,13 +68,25 @@ st.markdown(f"""
         margin-top: 0.5rem;
     }}
     
-    /* Compact progress styling */
+    /* Compact progress styling - CLEANED UP */
     .progress-compact {{
         background-color: #f8f9fa;
         padding: 0.8rem;
         border-radius: 8px;
         margin: 1rem 0;
         border: 1px solid #e0e0e0;
+    }}
+    
+    .progress-header {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .progress-status {{
+        font-size: 0.9rem;
+        font-weight: 500;
     }}
     
     .traffic-light {{
@@ -91,29 +102,23 @@ st.markdown(f"""
     .traffic-yellow {{ background-color: #f39c12; }}
     .traffic-red {{ background-color: #e74c3c; }}
     
-    /* Audio input styling */
-    .audio-recording {{
-        background-color: #e8f5e9;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        border: 1px solid #4caf50;
-    }}
-    
-    .speech-confirmation {{
-        background-color: #e8f5e9;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        border-left: 4px solid #4caf50;
-    }}
-    
-    .warning-box {{
+    /* Remove all audio/speech related styles */
+    .edit-target-box {{
         background-color: #fff3cd;
         border: 1px solid #ffeaa7;
         border-radius: 6px;
         padding: 1rem;
         margin: 0.5rem 0;
+    }}
+    
+    /* Ensure sidebar is visible */
+    .css-1d391kg {{
+        padding-top: 1rem;
+    }}
+    
+    /* Chat message styling */
+    .stChatMessage {{
+        margin-bottom: 1rem;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -207,14 +212,8 @@ if "responses" not in st.session_state:
     st.session_state.editing = None
     st.session_state.edit_text = ""
     st.session_state.ghostwriter_mode = True
-    st.session_state.show_speech = True
-    st.session_state.pending_transcription = None
-    st.session_state.audio_transcribed = False
-    st.session_state.show_transcription = False
-    st.session_state.auto_submit_text = None
-    st.session_state.spellcheck_enabled = True
+    st.session_state.show_speech = False  # Voice input disabled by default
     st.session_state.editing_word_target = False
-    st.session_state.confirming_clear = None
     
     # Initialize for each session
     for session in SESSIONS:
@@ -307,34 +306,7 @@ def save_response(session_id, question, answer):
         pass
 
 # ============================================================================
-# SECTION 7: SIMPLIFIED SPEECH-TO-TEXT
-# ============================================================================
-def transcribe_audio_simple(audio_file):
-    """Simplified transcription"""
-    try:
-        audio_bytes = audio_file.read()
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        
-        # Try transcription
-        with open(tmp_path, "rb") as audio_file_obj:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file_obj,
-                language="en"
-            )
-        
-        os.unlink(tmp_path)
-        return transcript.text if transcript.text else "[Could not transcribe. Please type your answer.]"
-        
-    except Exception as e:
-        return "[Speech recorded but transcription failed. Please type your answer.]"
-
-# ============================================================================
-# SECTION 8: APP HEADER
+# SECTION 7: APP HEADER
 # ============================================================================
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
@@ -346,7 +318,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 9: SIDEBAR
+# SECTION 8: SIDEBAR (FIXED TO BE VISIBLE)
 # ============================================================================
 with st.sidebar:
     st.header("👤 Your Profile")
@@ -409,7 +381,7 @@ with st.sidebar:
             st.rerun()
 
 # ============================================================================
-# SECTION 10: MAIN CONTENT - SESSION HEADER
+# SECTION 9: MAIN CONTENT - SESSION HEADER
 # ============================================================================
 current_session = SESSIONS[st.session_state.current_session]
 current_session_id = current_session["id"]
@@ -439,7 +411,7 @@ with col2:
             st.rerun()
 
 # ============================================================================
-# SECTION 11: COMPACT PROGRESS INDICATOR
+# SECTION 10: CLEAN PROGRESS INDICATOR (NO EDIT BUTTON)
 # ============================================================================
 current_word_count = calculate_session_word_count(current_session_id)
 target_words = st.session_state.responses[current_session_id].get("word_target", 500)
@@ -450,21 +422,10 @@ status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "
 
 st.markdown(f"""
 <div class="progress-compact">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-        <div>
+    <div class="progress-header">
+        <div class="progress-status">
             <span class="traffic-light" style="background-color: {color};"></span>
-            <span style="font-size: 0.9rem; font-weight: 500;">{emoji} {progress_percent:.0f}% complete • {status_text}</span>
-        </div>
-        <div>
-            <button onclick="document.getElementById('edit-target-btn').click()" style="
-                background: none;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                padding: 2px 8px;
-                font-size: 0.75rem;
-                cursor: pointer;
-                color: #666;
-            ">Change Target</button>
+            <span>{emoji} {progress_percent:.0f}% complete • {status_text}</span>
         </div>
     </div>
     <div style="height: 6px; background-color: #e0e0e0; border-radius: 3px; overflow: hidden;">
@@ -473,18 +434,31 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Edit target button
-if st.button("Change Target", key="edit-target-btn", type="secondary"):
+# Simple target edit button - NO redundant edit button
+if st.button("✏️ Change word target", key="edit-target-btn"):
     st.session_state.editing_word_target = not st.session_state.editing_word_target
-    st.rerun()
 
 if st.session_state.editing_word_target:
     st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
-    new_target = st.number_input("Target words:", min_value=100, max_value=5000, value=target_words, key="target_edit")
+    new_target = st.number_input("Target words for this session:", 
+                                 min_value=100, max_value=5000, 
+                                 value=target_words, key="target_edit")
     col_save, col_cancel = st.columns(2)
     with col_save:
         if st.button("Save", key="save_target", type="primary"):
             st.session_state.responses[current_session_id]["word_target"] = new_target
+            # Save to database
+            try:
+                conn = sqlite3.connect('life_story.db')
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO word_targets (session_id, word_target)
+                    VALUES (?, ?)
+                """, (current_session_id, new_target))
+                conn.commit()
+                conn.close()
+            except:
+                pass
             st.session_state.editing_word_target = False
             st.rerun()
     with col_cancel:
@@ -494,7 +468,7 @@ if st.session_state.editing_word_target:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 12: QUESTION AND GUIDANCE (AS YOU REQUESTED)
+# SECTION 11: QUESTION AND GUIDANCE
 # ============================================================================
 # Question
 st.markdown(f"""
@@ -511,7 +485,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 13: CONVERSATION DISPLAY
+# SECTION 12: CONVERSATION DISPLAY
 # ============================================================================
 if current_session_id not in st.session_state.session_conversations:
     st.session_state.session_conversations[current_session_id] = {}
@@ -533,7 +507,11 @@ else:
             is_editing = (st.session_state.editing == (current_session_id, current_question_text, i))
             with st.chat_message("user"):
                 if is_editing:
-                    new_text = st.text_area("Edit:", value=st.session_state.edit_text, height=100, key=f"edit_{i}", label_visibility="collapsed")
+                    new_text = st.text_area("Edit your answer:", 
+                                          value=st.session_state.edit_text, 
+                                          height=100, 
+                                          key=f"edit_{i}", 
+                                          label_visibility="collapsed")
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("Save", key=f"save_{i}", type="primary"):
@@ -558,59 +536,10 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 14: SPEECH INPUT (OPTIONAL - SIMPLIFIED)
-# ============================================================================
-if st.session_state.show_speech and st.checkbox("🎤 Use voice input", key="show_speech_toggle"):
-    st.markdown("""
-    <div class="audio-recording">
-        <strong>Voice Input:</strong><br>
-        1. Click microphone below<br>
-        2. Speak your answer<br>
-        3. Click stop button<br>
-        4. Review & confirm
-    </div>
-    """, unsafe_allow_html=True)
-    
-    audio_bytes = st.audio_input("Click to record", key=f"audio_{current_session_id}")
-    
-    if audio_bytes and not st.session_state.audio_transcribed:
-        with st.spinner("Transcribing..."):
-            transcribed_text = transcribe_audio_simple(audio_bytes)
-            if transcribed_text:
-                st.session_state.pending_transcription = transcribed_text
-                st.session_state.audio_transcribed = True
-                st.rerun()
-    
-    if st.session_state.audio_transcribed and st.session_state.pending_transcription:
-        st.markdown('<div class="speech-confirmation">', unsafe_allow_html=True)
-        st.write("**Your transcribed answer:**")
-        st.write(st.session_state.pending_transcription)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Use This", key="use_transcript", type="primary"):
-                st.session_state.auto_submit_text = st.session_state.pending_transcription
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
-                st.rerun()
-        with col2:
-            if st.button("Discard", key="discard_transcript"):
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# ============================================================================
-# SECTION 15: TEXT INPUT
+# SECTION 13: TEXT INPUT ONLY (VOICE INPUT COMPLETELY REMOVED)
 # ============================================================================
 if st.session_state.editing is None:
-    user_input = None
-    
-    if st.session_state.auto_submit_text:
-        user_input = st.session_state.auto_submit_text
-        st.session_state.auto_submit_text = None
-    else:
-        user_input = st.chat_input("Type your answer here...")
+    user_input = st.chat_input("Type your answer here...")
     
     if user_input:
         if current_session_id not in st.session_state.session_conversations:
@@ -640,24 +569,42 @@ if st.session_state.editing is None:
                     # Add word count update
                     updated_count = calculate_session_word_count(current_session_id)
                     target = st.session_state.responses[current_session_id].get("word_target", 500)
-                    progress = (updated_count / target * 100) if target > 0 else 0
                     
-                    if progress < 50:
-                        ai_response += f"\n\n*You're building good material here. Your words: {updated_count}/{target}.*"
-                    elif progress < 100:
-                        ai_response += f"\n\n*Good progress. Your words: {updated_count}/{target}.*"
-                    else:
-                        ai_response += f"\n\n*Excellent! Your words: {updated_count}/{target}.*"
+                    if target > 0:
+                        progress = (updated_count / target * 100)
+                        if progress < 50:
+                            ai_response += f"\n\n*You're building good material here. Your words: {updated_count}/{target}.*"
+                        elif progress < 100:
+                            ai_response += f"\n\n*Good progress. Your words: {updated_count}/{target}.*"
+                        else:
+                            ai_response += f"\n\n*Excellent! Target achieved! Your words: {updated_count}/{target}.*"
                     
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
                     
                 except Exception as e:
-                    error_msg = "Thank you for sharing that."
+                    error_msg = "Thank you for sharing that. I appreciate your thoughtful answer."
                     st.markdown(error_msg)
                     conversation.append({"role": "assistant", "content": error_msg})
         
         save_response(current_session_id, current_question_text, user_input)
         st.session_state.session_conversations[current_session_id][current_question_text] = conversation
         st.rerun()
+
+# ============================================================================
+# SECTION 14: BOTTOM NAVIGATION
+# ============================================================================
+st.divider()
+col1, col2, col3 = st.columns([1, 2, 1])
+with col1:
+    if st.button("← Previous Question", disabled=st.session_state.current_question == 0):
+        st.session_state.current_question = max(0, st.session_state.current_question - 1)
+        st.session_state.editing = None
+        st.rerun()
+with col3:
+    if st.button("Next Question →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1):
+        st.session_state.current_question = min(len(current_session["questions"]) - 1, st.session_state.current_question + 1)
+        st.session_state.editing = None
+        st.rerun()
+
 
