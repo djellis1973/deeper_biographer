@@ -163,15 +163,3 @@ if 'real_stories' in st.session_state and st.session_state.real_stories:
 # ============================================================================
 st.markdown("---")
 st.caption("📊 **Connected to real database** | Reads actual interview responses")
-
-# 1. Get the user's REAL stories from your app's memory
-real_user_stories = []  # You'll fill this with actual data
-
-# 2. Import the publishing function (after testing)
-from biography_publisher import create_biography
-
-# 3. Generate and offer download
-if st.button("📖 Publish My Biography"):
-    bio_text = create_biography(real_user_stories, user_name)
-    st.download_button("Download", bio_text, "my_biography.txt")
-    """, language="python")
