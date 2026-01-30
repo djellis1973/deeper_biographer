@@ -805,87 +805,56 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 13: CHAT INPUT
+# SECTION 8: GHOSTWRITER PROMPT FUNCTION
 # ============================================================================
-if st.session_state.editing is None and not st.session_state.editing_word_target:
-    user_input = None
+def get_system_prompt():
+    current_session = SESSIONS[st.session_state.current_session]
+    current_question = current_session["questions"][st.session_state.current_question]
     
-    # Regular chat input
-    user_input = st.chat_input("Type your answer here...")
-    
-    # Auto-correct as they type
-    if user_input and st.session_state.spellcheck_enabled:
-        user_input = auto_correct_text(user_input)
-    
-    if user_input:
-        current_session_id = current_session["id"]
-        current_question_text = current_session["questions"][st.session_state.current_question]
-        
-        if current_session_id not in st.session_state.session_conversations:
-            st.session_state.session_conversations[current_session_id] = {}
-        
-        if current_question_text not in st.session_state.session_conversations[current_session_id]:
-            st.session_state.session_conversations[current_session_id][current_question_text] = []
-        
-        conversation = st.session_state.session_conversations[current_session_id][current_question_text]
-        
-        # Add user message
-        conversation.append({"role": "user", "content": user_input})
-        
-        # Generate AI response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    messages_for_api = [
-                        {"role": "system", "content": get_system_prompt()},
-                        *conversation[-5:]
-                    ]
-                    
-                    if st.session_state.ghostwriter_mode:
-                        temperature = 0.8
-                        max_tokens = 400
-                    else:
-                        temperature = 0.7
-                        max_tokens = 300
-                    
-                    response = client.chat.completions.create(
-                        model="gpt-4-turbo-preview",
-                        messages=messages_for_api,
-                        temperature=temperature,
-                        max_tokens=max_tokens
-                    )
-                    
-                    ai_response = response.choices[0].message.content
-                    
-                    # Add word count encouragement
-                    updated_word_count = calculate_author_word_count(current_session_id)
-                    target_words = st.session_state.responses[current_session_id].get("word_target", 500)
-                    progress = (updated_word_count / target_words * 100) if target_words > 0 else 100
-                    
-                    if progress < 50:
-                        ai_response += f"\n\n*Note: You're building good material here. Current session: {updated_word_count}/{target_words} words.*"
-                    elif progress < 80:
-                        ai_response += f"\n\n*Good progress on this session: {updated_word_count}/{target_words} words.*"
-                    elif progress < 100:
-                        ai_response += f"\n\n*Excellent detail! Almost at your target: {updated_word_count}/{target_words} words.*"
-                    else:
-                        ai_response += f"\n\n*Fantastic! You've exceeded your word target: {updated_word_count}/{target_words} words.*"
-                    
-                    st.markdown(ai_response)
-                    conversation.append({"role": "assistant", "content": ai_response})
-                    
-                except Exception as e:
-                    error_msg = "Thank you for sharing that. Your response has been saved."
-                    st.markdown(error_msg)
-                    conversation.append({"role": "assistant", "content": error_msg})
-        
-        # Save to database
-        save_response(current_session_id, current_question_text, user_input)
-        
-        # Update conversation
-        st.session_state.session_conversations[current_session_id][current_question_text] = conversation
-        
-        st.rerun()
+    if st.session_state.ghostwriter_mode:
+        return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name. You're working with someone on their life story, and you treat this with the seriousness of archival research combined with literary craft.
+
+CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
+CURRENT QUESTION: "{current_question}"
+
+YOUR APPROACH:
+1. You listen like an archivist—hearing not just what's said, but what's implied
+2. You think in scenes, sensory details, and emotional truth
+3. You're not here to flatter; you're here to find the story that needs to be told
+4. You respect silence and complexity—you don't rush toward resolution
+5. You understand that memory is reconstruction, and you help reconstruct with integrity
+
+TECHNIQUE:
+- After they share, you often pause before responding (reflected in thoughtful language)
+- You reference specific details they've mentioned, showing you're truly listening
+- You ask questions that open space rather than close it
+- You sometimes gently challenge assumptions or explore contradictions
+- You're comfortable with ambiguity and unresolved moments
+
+EXAMPLE RESPONSES:
+To "I remember my grandmother's kitchen always smelled of cinnamon":
+"That's telling—cinnamon as character. Not just a smell, but a presence. Was it the cinnamon of baking or of potpourri? And did that scent mean comfort, or duty, or something more complicated?"
+
+To "School was mostly boring until Mr. Jenkins' class":
+"Let's sit with 'mostly boring' for a moment. What did that boredom feel like in your body? And what specifically shifted in Mr. Jenkins' room—was it the material, his presence, or something in you that changed?"
+
+Tone: Literary but not pretentious. Serious but not solemn. You're doing important work, and it shows in your attention to detail."""
+    else:
+        return f"""You are a warm, professional biographer helping document a life story.
+
+CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
+CURRENT QUESTION: "{current_question}"
+
+Please:
+1. Listen actively to their response
+2. Acknowledge it warmly (1-2 sentences)
+3. Ask ONE natural follow-up question if appropriate
+4. Keep the conversation flowing naturally
+
+Tone: Kind, curious, professional
+Goal: Draw out authentic, detailed memories
+
+Focus ONLY on the current question. Don't reference previous sessions."""
 
 # ============================================================================
 # SECTION 14: PROGRESS BAR AT BOTTOM
@@ -962,6 +931,7 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
 
 
 
