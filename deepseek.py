@@ -1090,56 +1090,32 @@ with col3:
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 
 # ============================================================================
-# SECTION: PUBLISH YOUR BIOGRAPHY (SIMPLE SAFE LINK)
-# ============================================================================
-st.divider()
-st.subheader("📖 Ready to Publish Your Biography?")
-
-st.markdown("""
-Your stories are saved! To create your biography, visit our dedicated publisher:
-""")
-
-# Your publisher app URL
-publisher_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
-
-# Simple markdown link - NO buttons, NO redirects, NO HTML
-st.markdown(f"""
-**[🖨️ Click here to open the Biography Publisher]({publisher_url})**
-
-(Opens in a new tab)
-""")
-
-st.caption("Your interview progress is saved. Return here anytime to continue.")
-# Add this anywhere in deepseek.py after saving (like after save_response function)
-import sqlite3
-conn = sqlite3.connect('life_story.db')
-cursor = conn.cursor()
-cursor.execute("SELECT COUNT(*) FROM responses WHERE user_id = ?", ("David Ellis",))
-count = cursor.fetchone()[0]
-print(f"DEBUG: David Ellis has {count} stories in database")
-conn.close()
-
-
-# ============================================================================
 # SECTION: PUBLISH YOUR BIOGRAPHY (WITH AUTO-FILLED NAME)
 # ============================================================================
 st.divider()
 st.subheader("📖 Ready to Publish Your Biography?")
 
 # Get the current user's name safely
-current_user = st.session_state.get('user_id', 'Guest')
+current_user = st.session_state.get('user_id', '')
 
 # Create a URL with the name as a parameter
 publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
 # Pass the name in the URL - no complex encoding, just simple & safe
 publisher_url = f"{publisher_base_url}?name={current_user}"
 
-st.markdown(f"""
-Your stories are saved as **{current_user}**.
-
-**[🖨️ Click here to open your Biography Publisher]({publisher_url})**
-
-The publisher will try to use your name: **{current_user}**
-""")
+if current_user:
+    st.markdown(f"""
+    Your stories are saved as **{current_user}**.
+    
+    **[🖨️ Click here to open your Biography Publisher]({publisher_url})**
+    
+    The publisher will try to use your name: **{current_user}**
+    """)
+else:
+    st.markdown("""
+    **Please enter your name in the sidebar first!**
+    
+    Once you set your name and save some stories, this link will appear.
+    """)
 
 st.caption("(Opens in a new tab. If the name doesn't auto-fill, you can type it manually.)")
