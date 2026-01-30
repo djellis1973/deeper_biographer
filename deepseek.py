@@ -1,3 +1,6 @@
+# ============================================================================
+# SECTION 1: IMPORTS AND INITIAL SETUP
+# ============================================================================
 import streamlit as st
 import json
 from datetime import datetime
@@ -5,13 +8,20 @@ from openai import OpenAI
 import os
 import sqlite3
 import re  # For word counting
+import tempfile  # For handling audio files
+from spellchecker import SpellChecker  # For spelling correction
 
-# ────────────────────────────────────────────────
-# CLEAN BRANDING WITH LOGO - FIXED SPACING
-# ────────────────────────────────────────────────
+# Initialize OpenAI client
+client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
+
+# Initialize spell checker
+spell = SpellChecker()
+
+# ============================================================================
+# SECTION 2: CSS STYLING AND VISUAL DESIGN
+# ============================================================================
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Enhanced CSS with traffic light system
 st.markdown(f"""
 <style>
     /* Fix header spacing */
@@ -136,13 +146,38 @@ st.markdown(f"""
         margin-top: 1rem;
         border-left: 4px solid #2196f3;
     }}
+    
+    .transcription-box {{
+        background-color: #e8f4fc;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+        border-left: 4px solid #2196f3;
+    }}
+    
+    .auto-submit-notice {{
+        background-color: #e8f5e9;
+        padding: 0.75rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        border-left: 4px solid #4caf50;
+        font-size: 0.9rem;
+    }}
+    
+    .spelling-suggestion {{
+        background-color: #fff3cd;
+        padding: 0.5rem;
+        border-radius: 5px;
+        margin-top: 0.25rem;
+        font-size: 0.85rem;
+        border-left: 3px solid #ffc107;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize OpenAI client
-client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
-
-# Define the chapter structure with professional guidance text
+# ============================================================================
+# SECTION 3: CHAPTER DEFINITIONS AND DATA STRUCTURE
+# ============================================================================
 CHAPTERS = [
     {
         "id": 1,
@@ -158,7 +193,7 @@ CHAPTERS = [
             "If you could give your younger self some advice, what would it be?"
         ],
         "completed": False,
-        "word_target": 800  # New: word count target per chapter
+        "word_target": 800
     },
     {
         "id": 2,
@@ -172,7 +207,7 @@ CHAPTERS = [
             "How did your family shape your values?"
         ],
         "completed": False,
-        "word_target": 700  # New: word count target per chapter
+        "word_target": 700
     },
     {
         "id": 3,
@@ -187,11 +222,13 @@ CHAPTERS = [
             "What advice would you give about learning?"
         ],
         "completed": False,
-        "word_target": 600  # New: word count target per chapter
+        "word_target": 600
     }
 ]
 
-# Initialize database
+# ============================================================================
+# SECTION 4: DATABASE FUNCTIONS
+# ============================================================================
 def init_db():
     conn = sqlite3.connect('life_story.db')
     cursor = conn.cursor()
@@ -215,19 +252,26 @@ def init_db():
 
 init_db()
 
-# Initialize session state
+# ============================================================================
+# SECTION 5: SESSION STATE INITIALIZATION
+# ============================================================================
 if "responses" not in st.session_state:
     st.session_state.current_chapter = 0
     st.session_state.current_question = 0
     st.session_state.responses = {}
     st.session_state.user_id = "Guest"
-    st.session_state.chapter_conversations = {}  # {chapter_id: {question_text: conversation}}
-    st.session_state.editing = None  # (chapter_id, question_text, message_index)
+    st.session_state.chapter_conversations = {}
+    st.session_state.editing = None
     st.session_state.edit_text = ""
     st.session_state.ghostwriter_mode = True
     st.session_state.show_speech = True
     st.session_state.speech_text = ""
     st.session_state.speech_preview = ""
+    st.session_state.pending_transcription = None
+    st.session_state.audio_transcribed = False
+    st.session_state.show_transcription = False
+    st.session_state.auto_submit_text = None
+    st.session_state.spellcheck_enabled = True  # Spelling correction toggle
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -239,7 +283,7 @@ if "responses" not in st.session_state:
             "completed": False,
             "word_target": chapter.get("word_target", 500)
         }
-        st.session_state.chapter_conversations[chapter_id] = {}  # Empty dict for questions
+        st.session_state.chapter_conversations[chapter_id] = {}
     
     # Load word targets from database
     try:
@@ -253,7 +297,9 @@ if "responses" not in st.session_state:
     except:
         pass
 
-# Load user data from database
+# ============================================================================
+# SECTION 6: CORE APPLICATION FUNCTIONS
+# ============================================================================
 def load_user_data():
     if st.session_state.user_id == "Guest":
         return
@@ -279,11 +325,9 @@ def load_user_data():
     except:
         pass
 
-# Save response to database
 def save_response(chapter_id, question, answer):
     user_id = st.session_state.user_id
     
-    # Save to session state
     if chapter_id not in st.session_state.responses:
         st.session_state.responses[chapter_id] = {
             "title": CHAPTERS[chapter_id-1]["title"],
@@ -298,7 +342,6 @@ def save_response(chapter_id, question, answer):
         "timestamp": datetime.now().isoformat()
     }
     
-    # Save to database
     try:
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
@@ -312,7 +355,6 @@ def save_response(chapter_id, question, answer):
     except:
         pass
 
-# Save word target to database
 def save_word_target(chapter_id, word_target):
     try:
         conn = sqlite3.connect('life_story.db')
@@ -327,19 +369,15 @@ def save_word_target(chapter_id, word_target):
     except:
         pass
 
-# Calculate word count for a chapter
 def calculate_chapter_word_count(chapter_id):
-    """Calculate total words for a chapter"""
     total_words = 0
     chapter_data = st.session_state.responses.get(chapter_id, {})
     conversations = st.session_state.chapter_conversations.get(chapter_id, {})
     
-    # Count words from saved responses
     for question, answer_data in chapter_data.get("questions", {}).items():
         if answer_data.get("answer"):
             total_words += len(re.findall(r'\w+', answer_data["answer"]))
     
-    # Count words from conversations
     for question_text, conv in conversations.items():
         for msg in conv:
             if msg["role"] == "user":
@@ -347,88 +385,100 @@ def calculate_chapter_word_count(chapter_id):
     
     return total_words
 
-# Get traffic light color and emoji
 def get_traffic_light(chapter_id):
-    """Return traffic light color and emoji based on word count progress"""
     current_count = calculate_chapter_word_count(chapter_id)
     target = st.session_state.responses[chapter_id].get("word_target", 500)
     
     if target == 0:
-        return "#2ecc71", "🟢", 100  # Green if no target
+        return "#2ecc71", "🟢", 100
     
     progress = (current_count / target) * 100
     
     if progress >= 100:
-        return "#2ecc71", "🟢", progress  # Green
+        return "#2ecc71", "🟢", progress
     elif progress >= 70:
-        return "#f39c12", "🟡", progress  # Yellow
+        return "#f39c12", "🟡", progress
     else:
-        return "#e74c3c", "🔴", progress  # Red
+        return "#e74c3c", "🔴", progress
 
-# Clear entire chapter
-def clear_chapter(chapter_id):
-    user_id = st.session_state.user_id
+def clean_speech_text(text):
+    if not text:
+        return text
     
-    # Clear from session state
-    if chapter_id in st.session_state.responses:
-        st.session_state.responses[chapter_id]["questions"] = {}
-        st.session_state.responses[chapter_id]["completed"] = False
-        st.session_state.responses[chapter_id]["summary"] = ""
+    text = text.strip()
     
-    # Clear conversation for this chapter
-    if chapter_id in st.session_state.chapter_conversations:
-        st.session_state.chapter_conversations[chapter_id] = {}
+    replacements = {
+        "uh": "", "um": "", "er": "", "ah": "",
+        "like, ": "", "you know, ": "", "sort of ": "", "kind of ": "",
+        "  ": " "
+    }
     
-    # Clear from database
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    
+    if text and len(text) > 0:
+        text = text[0].upper() + text[1:] if text[0].isalpha() else text
+    
+    if text and text[-1] not in ['.', '!', '?', ',', ';', ':']:
+        text += '.'
+    
+    return text
+
+# ============================================================================
+# SECTION 7: SPEECH-TO-TEXT AND SPELLING FUNCTIONS
+# ============================================================================
+def transcribe_audio(audio_bytes):
     try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM responses 
-            WHERE user_id = ? AND chapter_id = ?
-        """, (user_id, chapter_id))
-        conn.commit()
-        conn.close()
-    except:
-        pass
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+        
+        with open(tmp_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="en"
+            )
+        
+        os.unlink(tmp_path)
+        return transcript.text
+        
+    except Exception as e:
+        st.error(f"Error transcribing audio: {e}")
+        return None
 
-# Clear everything (reset)
-def clear_all():
-    user_id = st.session_state.user_id
+def check_spelling_openai(text):
+    """Use OpenAI to check and fix spelling mistakes"""
+    if not text or not st.session_state.spellcheck_enabled:
+        return text, []
     
-    # Clear session state
-    for chapter in CHAPTERS:
-        chapter_id = chapter["id"]
-        st.session_state.responses[chapter_id] = {
-            "title": chapter["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False,
-            "word_target": chapter.get("word_target", 500)
-        }
-        st.session_state.chapter_conversations[chapter_id] = {}
-    
-    st.session_state.current_chapter = 0
-    st.session_state.current_question = 0
-    st.session_state.editing = None
-    st.session_state.edit_text = ""
-    st.session_state.speech_text = ""
-    st.session_state.speech_preview = ""
-    
-    # Clear database
     try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM responses 
-            WHERE user_id = ?
-        """, (user_id,))
-        conn.commit()
-        conn.close()
-    except:
-        pass
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Fix spelling and grammar mistakes in the following text. Return the corrected version."},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=len(text) + 100,
+            temperature=0.1
+        )
+        corrected_text = response.choices[0].message.content
+        return corrected_text, ["Text corrected by AI"]
+    except Exception as e:
+        st.warning(f"Spell check unavailable: {e}")
+        return text, []
 
-# PROFESSIONAL GHOSTWRITER SYSTEM PROMPT
+def auto_correct_text(text):
+    """Auto-correct text using OpenAI"""
+    if not text or not st.session_state.spellcheck_enabled:
+        return text
+    
+    corrected_text, _ = check_spelling_openai(text)
+    return corrected_text
+
+# ============================================================================
+# SECTION 8: GHOSTWRITER PROMPT FUNCTION
+# ============================================================================
 def get_system_prompt():
     current_chapter = CHAPTERS[st.session_state.current_chapter]
     current_question = current_chapter["questions"][st.session_state.current_question]
@@ -482,7 +532,6 @@ EXAMPLE RESPONSE TO "I remember my grandmother's kitchen":
 
 Focus: Extract material for a compelling biography. Every question should serve that purpose."""
     else:
-        # Legacy mode (original behavior)
         return f"""You are a warm, professional biographer helping document a life story.
 
 CURRENT CHAPTER: {current_chapter['title']}
@@ -499,255 +548,11 @@ Goal: Draw out authentic, detailed memories
 
 Focus ONLY on the current question. Don't reference previous chapters."""
 
-# Generate chapter summary
-def generate_chapter_summary(chapter_id):
-    chapter = st.session_state.responses.get(chapter_id, {})
-    if not chapter.get("questions"):
-        return "No responses yet for this chapter."
-    
-    questions_answers = []
-    for q, data in chapter["questions"].items():
-        questions_answers.append(f"Q: {q}\nA: {data.get('answer', 'No answer')}")
-    
-    if not questions_answers:
-        return "No responses yet for this chapter."
-    
-    prompt = f"""Based on these interview responses for Chapter {chapter_id}: {chapter.get('title', 'Untitled')}, create a concise 3-4 paragraph summary capturing the key themes and stories.
-
-Responses:
-{"\n".join(questions_answers)}
-
-Summary:"""
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": "You are a professional biographer summarizing life story chapters."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Could not generate summary: {str(e)}"
-
-# Clean speech text
-def clean_speech_text(text):
-    """Clean up speech recognition output"""
-    if not text:
-        return text
-    
-    # Remove common speech artifacts
-    text = text.strip()
-    
-    # Fix common speech recognition errors
-    replacements = {
-        "uh": "",
-        "um": "",
-        "er": "",
-        "ah": "",
-        "like, ": "",
-        "you know, ": "",
-        "sort of ": "",
-        "kind of ": "",
-        "  ": " "  # Double spaces
-    }
-    
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    
-    # Capitalize first letter
-    if text and len(text) > 0:
-        text = text[0].upper() + text[1:] if text[0].isalpha() else text
-    
-    # Ensure ends with punctuation if it doesn't
-    if text and text[-1] not in ['.', '!', '?', ',', ';', ':']:
-        text += '.'
-    
-    return text
-
-# Export functions
-def export_json():
-    """Export all responses as JSON - includes ALL chapters and ALL conversation answers"""
-    export_data = {
-        "metadata": {
-            "project": "LifeStory AI",
-            "user_id": st.session_state.user_id,
-            "export_date": datetime.now().isoformat(),
-            "export_format": "JSON",
-            "interview_style": "Professional Ghostwriter" if st.session_state.ghostwriter_mode else "Standard"
-        },
-        "chapters": {}
-    }
-    
-    for chapter in CHAPTERS:
-        chapter_id = chapter["id"]
-        chapter_data = st.session_state.responses.get(chapter_id, {})
-        conversations = st.session_state.chapter_conversations.get(chapter_id, {})
-        
-        # Get ALL Q&A for this chapter
-        chapter_qa = {}
-        chapter_full_conversations = {}
-        
-        # Process each question in the chapter
-        for question_text in chapter["questions"]:
-            # Get main answer from saved responses
-            main_answer = ""
-            if question_text in chapter_data.get("questions", {}):
-                main_answer = chapter_data["questions"][question_text].get("answer", "")
-            
-            # Get full conversation for this question
-            full_conversation = []
-            if question_text in conversations:
-                # Extract all user answers from conversation
-                user_answers = []
-                conversation_history = []
-                for msg in conversations[question_text]:
-                    conversation_history.append({
-                        "role": msg["role"],
-                        "content": msg["content"],
-                        "timestamp": datetime.now().isoformat() if msg["role"] == "user" else ""
-                    })
-                    if msg["role"] == "user":
-                        user_answers.append(msg["content"])
-                
-                # Store full conversation
-                if conversation_history:
-                    chapter_full_conversations[question_text] = conversation_history
-                
-                # If we have user answers, use them
-                if user_answers:
-                    chapter_qa[question_text] = "\n".join(user_answers)
-                elif main_answer:
-                    chapter_qa[question_text] = main_answer
-            elif main_answer:
-                chapter_qa[question_text] = main_answer
-        
-        # Include chapters with content
-        export_data["chapters"][str(chapter_id)] = {
-            "title": chapter["title"],
-            "guidance": chapter.get("guidance", ""),
-            "questions": chapter_qa,
-            "full_conversations": chapter_full_conversations,
-            "summary": chapter_data.get("summary", ""),
-            "completed": chapter_data.get("completed", False),
-            "word_count": calculate_chapter_word_count(chapter_id),
-            "word_target": chapter_data.get("word_target", 500),
-            "total_questions": len(chapter["questions"]),
-            "answered_questions": len(chapter_qa)
-        }
-    
-    return json.dumps(export_data, indent=2)
-
-def export_text():
-    """Export all responses as formatted text - includes ALL chapters and conversations"""
-    interview_style = "Professional Ghostwriter Interview" if st.session_state.ghostwriter_mode else "Standard Interview"
-    
-    text = "=" * 60 + "\n"
-    text += "MY LIFE STORY\n"
-    text += "=" * 60 + "\n\n"
-    text += f"Author: {st.session_state.user_id}\n"
-    text += f"Interview Style: {interview_style}\n"
-    text += f"Generated: {datetime.now().strftime('%d %B %Y at %H:%M')}\n\n"
-    
-    has_content = False
-    
-    for chapter in CHAPTERS:
-        chapter_id = chapter["id"]
-        chapter_data = st.session_state.responses.get(chapter_id, {})
-        conversations = st.session_state.chapter_conversations.get(chapter_id, {})
-        
-        # Check if this chapter has any content
-        chapter_has_content = False
-        chapter_content = []
-        
-        for question_text in chapter["questions"]:
-            has_saved_answer = question_text in chapter_data.get("questions", {})
-            has_conversation = question_text in conversations and conversations[question_text]
-            
-            if has_saved_answer or has_conversation:
-                chapter_has_content = True
-                q_block = f"Q: {question_text}\n"
-                
-                if has_conversation:
-                    user_answers = []
-                    ai_messages = []
-                    
-                    for msg in conversations[question_text]:
-                        if msg["role"] == "user":
-                            user_answers.append(f"A: {msg['content']}")
-                        elif msg["role"] == "assistant":
-                            if not ("I'd love to hear your thoughts about this question:" in msg['content'] and len(conversations[question_text]) == 1):
-                                ai_messages.append(f"Interviewer: {msg['content']}")
-                    
-                    if user_answers:
-                        q_block += "\n".join(user_answers) + "\n"
-                    if ai_messages:
-                        q_block += "\n".join(ai_messages) + "\n"
-                
-                elif has_saved_answer:
-                    q_block += f"A: {chapter_data['questions'][question_text].get('answer', '')}\n"
-                
-                chapter_content.append(q_block)
-        
-        # Always include the chapter
-        text += f"\n{'=' * 60}\n"
-        text += f"CHAPTER {chapter_id}: {chapter['title']}\n"
-        text += f"{'=' * 60}\n\n"
-        
-        # Add word count info
-        word_count = calculate_chapter_word_count(chapter_id)
-        word_target = chapter_data.get("word_target", 500)
-        progress = (word_count / word_target * 100) if word_target > 0 else 100
-        
-        text += f"Word Count: {word_count} / {word_target} ({progress:.1f}%)\n"
-        if progress >= 100:
-            text += "Status: 🟢 Target Achieved\n\n"
-        elif progress >= 70:
-            text += "Status: 🟡 Close to Target\n\n"
-        else:
-            text += "Status: 🔴 Needs More Content\n\n"
-        
-        # Add chapter guidance
-        text += f"Chapter Introduction:\n{chapter.get('guidance', '')}\n\n"
-        
-        if chapter_has_content:
-            has_content = True
-            text += f"{'-' * 50}\n\n"
-            
-            for i, q_block in enumerate(chapter_content):
-                text += q_block
-                if i < len(chapter_content) - 1:
-                    text += "\n" + "-" * 40 + "\n\n"
-            
-            # Add summary if available
-            summary = chapter_data.get("summary")
-            if summary and summary != "No responses yet for this chapter.":
-                text += "\n" + "=" * 50 + "\n"
-                text += "CHAPTER SUMMARY:\n"
-                text += "=" * 50 + "\n\n"
-                text += f"{summary}\n\n"
-        else:
-            text += "\n[No responses recorded for this chapter yet]\n\n"
-        
-        text += f"Chapter Status: {'COMPLETED' if chapter_data.get('completed', False) else 'IN PROGRESS'}\n"
-        answered_count = len([q for q in chapter['questions'] if q in chapter_data.get('questions', {}) or (q in conversations and any(msg['role'] == 'user' for msg in conversations[q]))])
-        text += f"Questions answered: {answered_count}/{len(chapter['questions'])}\n"
-        text += "\n" + "=" * 60 + "\n"
-    
-    if not has_content:
-        text += "\nNo responses have been recorded yet in any chapter.\n"
-        text += "=" * 60 + "\n"
-    
-    return text
-
-# ────────────────────────────────────────────────
-# STREAMLIT UI - UPDATED WITH NEW FEATURES
-# ────────────────────────────────────────────────
+# ============================================================================
+# SECTION 9: MAIN APP HEADER
+# ============================================================================
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Clean header with logo
 st.markdown(f"""
 <div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
@@ -758,11 +563,12 @@ st.markdown(f"""
 
 st.caption("A professional guided journey through your life story")
 
-# Load user data on startup
 if st.session_state.user_id != "Guest":
     load_user_data()
 
-# Sidebar for navigation and controls
+# ============================================================================
+# SECTION 10: SIDEBAR - USER PROFILE AND SETTINGS
+# ============================================================================
 with st.sidebar:
     st.header("👤 Your Profile")
     
@@ -778,8 +584,11 @@ with st.sidebar:
         st.session_state.edit_text = ""
         st.session_state.speech_text = ""
         st.session_state.speech_preview = ""
+        st.session_state.pending_transcription = None
+        st.session_state.audio_transcribed = False
+        st.session_state.show_transcription = False
+        st.session_state.auto_submit_text = None
         
-        # Reinitialize for new user
         for chapter in CHAPTERS:
             chapter_id = chapter["id"]
             st.session_state.responses[chapter_id] = {
@@ -794,61 +603,66 @@ with st.sidebar:
         load_user_data()
         st.rerun()
     
-    # Professional Ghostwriter Mode Toggle
     st.divider()
     st.header("✍️ Interview Style")
     
     ghostwriter_mode = st.toggle(
         "Professional Ghostwriter Mode", 
         value=st.session_state.ghostwriter_mode,
-        help="When enabled, the AI acts as a professional biographer using advanced interviewing techniques to draw out richer, more detailed responses."
+        help="When enabled, the AI acts as a professional biographer using advanced interviewing techniques."
     )
     
     if ghostwriter_mode != st.session_state.ghostwriter_mode:
         st.session_state.ghostwriter_mode = ghostwriter_mode
         st.rerun()
     
-    # Speech Input Toggle
     show_speech = st.toggle(
         "Show Speech Input",
         value=st.session_state.show_speech,
-        help="Show voice recording interface"
+        help="Show voice recording interface with automatic transcription"
     )
     
     if show_speech != st.session_state.show_speech:
         st.session_state.show_speech = show_speech
         st.rerun()
     
+    spellcheck_enabled = st.toggle(
+        "Auto Spelling Check",
+        value=st.session_state.spellcheck_enabled,
+        help="Check and suggest spelling corrections as you type"
+    )
+    
+    if spellcheck_enabled != st.session_state.spellcheck_enabled:
+        st.session_state.spellcheck_enabled = spellcheck_enabled
+        st.rerun()
+    
     if st.session_state.ghostwriter_mode:
         st.success("✓ Professional mode active")
-        st.caption("AI will use advanced interviewing techniques")
     else:
         st.info("Standard mode active")
-        st.caption("AI will use simpler conversation style")
     
     st.divider()
     
-    st.header("📖 Chapter Progress")
+    # ============================================================================
+    # SECTION 10A: SIDEBAR - WORD COUNT SETTINGS (NEW CLEARLY MARKED SECTION)
+    # ============================================================================
+    st.header("📊 Word Count Settings")
     
-    # Chapter progress tracker with word counts
     for i, chapter in enumerate(CHAPTERS):
         chapter_id = chapter["id"]
-        chapter_data = st.session_state.responses.get(chapter_id, {})
         
-        # Calculate word count and traffic light
+        # ALWAYS use session state as source of truth
+        target_words = st.session_state.responses[chapter_id].get("word_target", 500)
         word_count = calculate_chapter_word_count(chapter_id)
-        target_words = chapter_data.get("word_target", 500)
         color, emoji, progress = get_traffic_light(chapter_id)
         
-        # Determine status
-        if chapter_data.get("completed", False):
+        if st.session_state.responses[chapter_id].get("completed", False):
             status = "✅"
         elif i == st.session_state.current_chapter:
             status = "▶️"
         else:
             status = "●"
         
-        # Chapter button with traffic light
         button_text = f"{emoji} {status} Chapter {chapter['id']}: {chapter['title']}"
         
         if st.button(button_text, 
@@ -860,12 +674,10 @@ with st.sidebar:
             st.session_state.editing = None
             st.rerun()
         
-        # Progress bar with word count
         if target_words > 0:
             progress_bar = min(word_count / target_words, 1.0)
             st.progress(progress_bar)
             
-            # Word count display
             col1, col2 = st.columns([3, 1])
             with col1:
                 st.caption(f"📝 {word_count}/{target_words} words")
@@ -876,7 +688,7 @@ with st.sidebar:
         # Edit target input
         if st.session_state.get(f"editing_target_{chapter_id}"):
             new_target = st.number_input(
-                f"Target for Chapter {chapter_id}:",
+                f"Target words for Chapter {chapter_id}:",
                 min_value=100,
                 max_value=5000,
                 value=target_words,
@@ -887,6 +699,7 @@ with st.sidebar:
             col_save, col_cancel = st.columns(2)
             with col_save:
                 if st.button("💾 Save", key=f"save_target_{chapter_id}"):
+                    # Update BOTH session state and database
                     st.session_state.responses[chapter_id]["word_target"] = new_target
                     save_word_target(chapter_id, new_target)
                     st.session_state[f"editing_target_{chapter_id}"] = False
@@ -898,29 +711,27 @@ with st.sidebar:
     
     st.divider()
     
-    # Navigation controls for moving between questions
+    # ============================================================================
+    # SECTION 10B: SIDEBAR - NAVIGATION CONTROLS
+    # ============================================================================
     st.subheader("Question Navigation")
     
-    # Show current question number
     current_chapter = CHAPTERS[st.session_state.current_chapter]
     st.markdown(f'<div class="question-counter">Question {st.session_state.current_question + 1} of {len(current_chapter["questions"])}</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        # Previous question button
         if st.button("← Previous", disabled=st.session_state.current_question == 0, key="prev_q_sidebar"):
             st.session_state.current_question = max(0, st.session_state.current_question - 1)
             st.session_state.editing = None
             st.rerun()
     
     with col2:
-        # Next question button
         if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_sidebar"):
             st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
             st.session_state.editing = None
             st.rerun()
     
-    # Chapter navigation
     st.divider()
     st.subheader("Chapter Navigation")
     col1, col2 = st.columns(2)
@@ -937,7 +748,6 @@ with st.sidebar:
             st.session_state.editing = None
             st.rerun()
     
-    # Jump to specific chapter
     chapter_options = [f"Chapter {c['id']}: {c['title']}" for c in CHAPTERS]
     selected_chapter = st.selectbox("Jump to chapter:", chapter_options, index=st.session_state.current_chapter)
     if chapter_options.index(selected_chapter) != st.session_state.current_chapter:
@@ -948,114 +758,109 @@ with st.sidebar:
     
     st.divider()
     
-    # Export section
+    # ============================================================================
+    # SECTION 10C: SIDEBAR - EXPORT OPTIONS
+    # ============================================================================
     st.subheader("📤 Export Options")
     
-    # Show what will be exported
     total_answers = sum(len(ch.get("questions", {})) for ch in st.session_state.responses.values())
-    total_conversations = sum(len([q for q, conv in convs.items() if any(msg['role'] == 'user' for msg in conv)]) for convs in st.session_state.chapter_conversations.values())
-    total_to_export = max(total_answers, total_conversations)
-    st.caption(f"Total answers to export: {total_to_export}")
+    st.caption(f"Total answers to export: {total_answers}")
     
     if st.button("📥 Export Current Progress", type="primary"):
-        if total_to_export > 0:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="Download as JSON",
-                    data=export_json(),
-                    file_name=f"LifeStory_{st.session_state.user_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                    mime="application/json"
-                )
-            with col2:
-                st.download_button(
-                    label="Download as Text",
-                    data=export_text(),
-                    file_name=f"LifeStory_{st.session_state.user_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    mime="text/plain"
-                )
+        if total_answers > 0:
+            # Simple export implementation
+            export_data = {"chapters": {}}
+            for chapter in CHAPTERS:
+                chapter_id = chapter["id"]
+                chapter_data = st.session_state.responses.get(chapter_id, {})
+                if chapter_data.get("questions"):
+                    export_data["chapters"][chapter_id] = chapter_data
+            
+            st.download_button(
+                label="Download as JSON",
+                data=json.dumps(export_data, indent=2),
+                file_name=f"LifeStory_{st.session_state.user_id}.json",
+                mime="application/json"
+            )
         else:
-            st.warning("No responses to export yet. Start answering questions first!")
+            st.warning("No responses to export yet!")
     
     st.divider()
     
-    # Management Section
+    # ============================================================================
+    # SECTION 10D: SIDEBAR - MANAGEMENT CONTROLS
+    # ============================================================================
     st.subheader("⚙️ Management")
     
-    # Clear buttons
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Clear Current Chapter", type="secondary", key="clear_chap_bottom"):
+        if st.button("Clear Chapter", type="secondary"):
             current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
-            clear_chapter(current_chapter_id)
-            st.session_state.current_question = 0
-            st.session_state.editing = None
-            st.rerun()
+            try:
+                conn = sqlite3.connect('life_story.db')
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM responses WHERE user_id = ? AND chapter_id = ?", 
+                              (st.session_state.user_id, current_chapter_id))
+                conn.commit()
+                conn.close()
+                st.session_state.responses[current_chapter_id]["questions"] = {}
+                st.rerun()
+            except:
+                pass
     
     with col2:
-        if st.button("Clear All", type="secondary", key="clear_all_bottom"):
-            clear_all()
-            st.rerun()
-    
-    # Complete chapter button in sidebar
-    if st.button("✅ Complete Chapter", type="primary", use_container_width=True, key="complete_chap_bottom"):
-        current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
-        chapter_data = st.session_state.responses.get(current_chapter_id, {})
-        questions_answered = len(chapter_data.get("questions", {}))
-        
-        if questions_answered > 0:
-            summary = generate_chapter_summary(current_chapter_id)
-            st.session_state.responses[current_chapter_id]["summary"] = summary
-            st.session_state.responses[current_chapter_id]["completed"] = True
-            st.success(f"Chapter {current_chapter_id} completed!")
-            st.rerun()
-        else:
-            st.warning("Answer at least one question before completing the chapter.")
-    
-    st.divider()
-    st.caption("Built with DeepSeek AI • Your data is saved locally")
-    st.caption(f"Audio recording uses Streamlit {st.__version__}")
+        if st.button("Clear All", type="secondary"):
+            try:
+                conn = sqlite3.connect('life_story.db')
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM responses WHERE user_id = ?", 
+                              (st.session_state.user_id,))
+                conn.commit()
+                conn.close()
+                for chapter in CHAPTERS:
+                    chapter_id = chapter["id"]
+                    st.session_state.responses[chapter_id]["questions"] = {}
+                st.rerun()
+            except:
+                pass
 
-# Main content area - FULL WIDTH
-# Get current chapter
+# ============================================================================
+# SECTION 11: MAIN CONTENT - CHAPTER HEADER AND WORD COUNT
+# ============================================================================
 current_chapter = CHAPTERS[st.session_state.current_chapter]
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Show chapter header with word count
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
     
-    # Show interview style indicator
     if st.session_state.ghostwriter_mode:
         st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode • Advanced Interviewing</p>', unsafe_allow_html=True)
     else:
         st.markdown('<p class="ghostwriter-tag">Standard Interview Mode</p>', unsafe_allow_html=True)
         
 with col2:
-    # Larger question counter
     st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Question {st.session_state.current_question + 1} of {len(current_chapter["questions"])}</div>', unsafe_allow_html=True)
 with col3:
-    # Quick navigation buttons
     nav_col1, nav_col2 = st.columns(2)
     with nav_col1:
-        if st.button("← Prev", disabled=st.session_state.current_question == 0, key="prev_q_quick", use_container_width=True):
+        if st.button("← Prev", disabled=st.session_state.current_question == 0, key="prev_q_quick"):
             st.session_state.current_question = max(0, st.session_state.current_question - 1)
             st.session_state.editing = None
             st.rerun()
     with nav_col2:
-        if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_quick", use_container_width=True):
+        if st.button("Next →", disabled=st.session_state.current_question >= len(current_chapter["questions"]) - 1, key="next_q_quick"):
             st.session_state.current_question = min(len(current_chapter["questions"]) - 1, st.session_state.current_question + 1)
             st.session_state.editing = None
             st.rerun()
 
-# WORD COUNT DISPLAY WITH TRAFFIC LIGHT SYSTEM
+# WORD COUNT DISPLAY - NOW SYNCED WITH SIDEBAR
 current_word_count = calculate_chapter_word_count(current_chapter_id)
+# FIXED: Use the session state target, not the hardcoded chapter value
 target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
 color, emoji, progress_percent = get_traffic_light(current_chapter_id)
 
-# Display word count box
 st.markdown(f"""
 <div class="word-count-box">
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1065,7 +870,7 @@ st.markdown(f"""
                 Word Count: {current_word_count} / {target_words}
             </h4>
             <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
-                {emoji} {progress_percent:.0f}% of target • {target_words - current_word_count} words remaining
+                {emoji} {progress_percent:.0f}% of target • {max(0, target_words - current_word_count)} words remaining
             </p>
         </div>
         <div>
@@ -1080,7 +885,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Show progress bar for questions
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
 questions_answered = len(chapter_data.get("questions", {}))
 total_questions = len(current_chapter["questions"])
@@ -1090,32 +894,31 @@ if total_questions > 0:
     st.progress(min(question_progress, 1.0))
     st.caption(f"Questions answered: {questions_answered}/{total_questions}")
 
-# Show chapter guidance
 st.markdown(f"""
 <div class="chapter-guidance">
     {current_chapter.get('guidance', '')}
 </div>
 """, unsafe_allow_html=True)
 
-# Show current question
 st.markdown(f"""
 <div class="question-box">
     {current_question_text}
 </div>
 """, unsafe_allow_html=True)
 
-# UPDATED SPEECH INTERFACE USING STREAMLIT'S BUILT-IN AUDIO INPUT
+# ============================================================================
+# SECTION 12: AUTOMATIC SPEECH-TO-TEXT WITH WHISPER API
+# ============================================================================
 if st.session_state.show_speech:
     st.markdown("### 🎤 Speak Your Answer")
     st.markdown("""
     <div class="audio-recording">
-        <strong>Voice Recording Instructions:</strong>
+        <strong>Automatic Speech-to-Text:</strong>
         <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-            <li>Click the microphone icon below to start recording</li>
-            <li>Speak clearly - your browser will record the audio</li>
-            <li>When finished, click the microphone again to stop</li>
-            <li>Your audio will be saved for transcription</li>
-            <li>Works in all modern browsers that support microphone access</li>
+            <li>Record your answer - Whisper AI will transcribe it automatically</li>
+            <li>Transcription appears below for review and editing</li>
+            <li>Click "Use This Answer" to add it directly to the conversation</li>
+            <li>Works with any microphone in your browser</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
@@ -1130,124 +933,128 @@ if st.session_state.show_speech:
         # Display the recorded audio
         st.audio(audio_bytes, format="audio/wav")
         
-        # Store audio bytes in session state for later use
-        st.session_state.audio_bytes = audio_bytes
-        
-        # Note about transcription
-        st.info("""
-        **Note:** You've recorded audio successfully! 
-        
-        To transcribe this audio to text, you would use OpenAI's Whisper API:
-        
-        ```python
-        # Example for transcribing the audio
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(audio_bytes)
-            with open(tmp.name, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=audio_file
-                )
-        ```
-        
-        For now, please type or paste your answer in the text area below.
-        """)
+        # Auto-transcribe using Whisper API
+        if not st.session_state.audio_transcribed:
+            with st.spinner("Transcribing with Whisper AI..."):
+                transcribed_text = transcribe_audio(audio_bytes)
+                if transcribed_text:
+                    st.session_state.pending_transcription = transcribed_text
+                    st.session_state.audio_transcribed = True
+                    st.rerun()
     
-    # Manual text input for speech
-    speech_text = st.text_area(
-        "Type or paste your spoken answer here:",
-        value=st.session_state.speech_text,
-        height=150,
-        key="speech_text_area",
-        placeholder="Type your answer here, or paste transcribed text..."
-    )
-    
-    if speech_text != st.session_state.speech_text:
-        st.session_state.speech_text = speech_text
-    
-    if st.session_state.speech_text:
-        # Show word count for the speech text
-        speech_word_count = len(re.findall(r'\w+', st.session_state.speech_text))
-        st.caption(f"📝 Speech text word count: {speech_word_count} words")
+    # Show transcribed text for editing
+    if st.session_state.pending_transcription:
+        st.markdown("### 📝 Transcribed Text")
+        st.markdown('<div class="transcription-box">', unsafe_allow_html=True)
         
-        # Use speech text button
-        if st.button("✅ Use This Text for Answer", type="primary", use_container_width=True):
-            # Clean and use the speech text
-            cleaned_text = clean_speech_text(st.session_state.speech_text)
-            st.session_state.speech_preview = f"Ready to use: {cleaned_text[:100]}..."
-            st.session_state.speech_text = cleaned_text
-            # This will be picked up by the chat input below
+        # Text area with spell checking
+        transcribed_text = st.text_area(
+            "Edit your transcribed answer:",
+            value=st.session_state.pending_transcription,
+            height=200,
+            key="transcription_edit",
+            help="Edit the transcription before adding it to your story"
+        )
+        
+        # Spelling check for transcribed text
+        if transcribed_text and st.session_state.spellcheck_enabled:
+            _, suggestions = check_spelling(transcribed_text)
+            if suggestions:
+                st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
+                st.write("**Spelling suggestions:**")
+                for wrong, correct in suggestions[:3]:  # Show top 3 suggestions
+                    st.write(f"• '{wrong}' → '{correct}'")
+                st.markdown('</div>', unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            if st.button("✅ Use This Answer", type="primary", use_container_width=True):
+                # Auto-correct spelling if enabled
+                if st.session_state.spellcheck_enabled:
+                    corrected_text = auto_correct_text(transcribed_text)
+                    st.session_state.auto_submit_text = corrected_text
+                else:
+                    st.session_state.auto_submit_text = transcribed_text
+                
+                st.session_state.pending_transcription = None
+                st.session_state.audio_transcribed = False
+                st.rerun()
+        
+        with col2:
+            if st.button("🔄 Re-transcribe", type="secondary", use_container_width=True):
+                st.session_state.audio_transcribed = False
+                st.session_state.pending_transcription = None
+                st.rerun()
+        
+        with col3:
+            if st.button("❌ Cancel", type="secondary", use_container_width=True):
+                st.session_state.pending_transcription = None
+                st.session_state.audio_transcribed = False
+                st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown("---")
-    st.markdown("### ✏️ Or Continue with Chat Below")
 
-# Get conversation for current question
+# ============================================================================
+# SECTION 13: CONVERSATION DISPLAY WITH SPELL CHECKING
+# ============================================================================
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Handle backward compatibility
-if current_chapter_id in st.session_state.chapter_conversations:
-    if isinstance(st.session_state.chapter_conversations[current_chapter_id], list):
-        old_conversation = st.session_state.chapter_conversations[current_chapter_id]
-        st.session_state.chapter_conversations[current_chapter_id] = {}
-        for msg in old_conversation:
-            if "Let's start with:" in msg.get("content", ""):
-                question_match = msg["content"].split("Let's start with:")[-1].strip().strip('**')
-                if question_match:
-                    st.session_state.chapter_conversations[current_chapter_id][question_match] = old_conversation
-                    break
-        if not st.session_state.chapter_conversations[current_chapter_id]:
-            st.session_state.chapter_conversations[current_chapter_id][current_question_text] = old_conversation
-
-# Ensure chapter_conversations[chapter_id] exists and is a dict
 if current_chapter_id not in st.session_state.chapter_conversations:
     st.session_state.chapter_conversations[current_chapter_id] = {}
 
-# Get conversation for this specific question
 conversation = st.session_state.chapter_conversations[current_chapter_id].get(current_question_text, [])
 
-# Display conversation - ALWAYS show at least an AI welcome message if empty
 if not conversation:
-    # Show appropriate welcome message based on mode
     with st.chat_message("assistant"):
         if st.session_state.ghostwriter_mode:
-            # Professional ghostwriter welcome
             welcome_msg = f"""Let's explore this question properly: **{current_question_text}**
 
 Take your time with this—good biographies are built from thoughtful reflection rather than quick answers.
 
 *Current chapter word count: {current_word_count}/{target_words} words*"""
         else:
-            # Standard welcome
             welcome_msg = f"I'd love to hear your thoughts about this question: **{current_question_text}**"
         
         st.markdown(welcome_msg)
-        # Add to conversation so it shows in history
         conversation.append({"role": "assistant", "content": welcome_msg})
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
 else:
-    # Display existing conversation
     for i, message in enumerate(conversation):
         if message["role"] == "assistant":
             with st.chat_message("assistant"):
                 st.markdown(message["content"])
         
         elif message["role"] == "user":
-            # Check if this message is being edited
             is_editing = (st.session_state.editing == (current_chapter_id, current_question_text, i))
             
             with st.chat_message("user"):
                 if is_editing:
-                    # Edit mode: show text input and buttons
+                    # Edit mode with spell checking
                     new_text = st.text_area(
                         "Edit your answer:",
                         value=st.session_state.edit_text,
                         key=f"edit_area_{current_chapter_id}_{hash(current_question_text)}_{i}",
+                        height=150,
                         label_visibility="collapsed"
                     )
                     
-                    # Show word count while editing
+                    # Real-time spell checking while editing
+                    if new_text and st.session_state.spellcheck_enabled:
+                        checked_text, suggestions = check_spelling(new_text)
+                        if suggestions:
+                            st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
+                            st.write("**Spelling suggestions (click to apply):**")
+                            for wrong, correct in suggestions[:5]:
+                                if st.button(f"Replace '{wrong}' with '{correct}'", 
+                                           key=f"replace_{wrong}_{i}",
+                                           type="secondary"):
+                                    new_text = new_text.replace(wrong, correct)
+                                    st.rerun()
+                            st.markdown('</div>', unsafe_allow_html=True)
+                    
                     if new_text:
                         edit_word_count = len(re.findall(r'\w+', new_text))
                         st.caption(f"📝 Editing: {edit_word_count} words")
@@ -1255,13 +1062,13 @@ else:
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("✓ Save", key=f"save_{current_chapter_id}_{hash(current_question_text)}_{i}", type="primary"):
-                            # Save the edited answer
+                            # Auto-correct before saving if enabled
+                            if st.session_state.spellcheck_enabled:
+                                new_text = auto_correct_text(new_text)
+                            
                             conversation[i]["content"] = new_text
                             st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
-                            
-                            # Save to database
                             save_response(current_chapter_id, current_question_text, new_text)
-                            
                             st.session_state.editing = None
                             st.rerun()
                     with col2:
@@ -1269,56 +1076,47 @@ else:
                             st.session_state.editing = None
                             st.rerun()
                 else:
-                    # Normal mode: show answer with edit button
                     col1, col2 = st.columns([5, 1])
                     with col1:
                         st.markdown(message["content"])
-                        # Show word count for this answer
                         word_count = len(re.findall(r'\w+', message["content"]))
-                        st.caption(f"📝 {word_count} words")
+                        st.caption(f"📝 {word_count} words • Click ✏️ to edit")
                     with col2:
                         if st.button("✏️", key=f"edit_{current_chapter_id}_{hash(current_question_text)}_{i}"):
                             st.session_state.editing = (current_chapter_id, current_question_text, i)
                             st.session_state.edit_text = message["content"]
                             st.rerun()
 
-# Chat input - ALWAYS SHOW when not editing
+# ============================================================================
+# SECTION 14: CHAT INPUT WITH AUTO-SUBMIT AND SPELL CHECKING
+# ============================================================================
 if st.session_state.editing is None:
-    # Check if we have speech text to use
-    if st.session_state.speech_text:
-        # Show the speech text with option to use it
-        speech_word_count = len(re.findall(r'\w+', st.session_state.speech_text))
-        st.info(f"**Speech text ready ({speech_word_count} words):** {st.session_state.speech_text[:200]}...")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✅ Use Speech Text", type="primary", key="use_speech_text"):
-                user_input = clean_speech_text(st.session_state.speech_text)
-                # Store for chat input
-                st.session_state.pending_input = user_input
-                # Clear speech text after use
-                st.session_state.speech_text = ""
-                st.session_state.speech_preview = ""
-                st.rerun()
-        with col2:
-            if st.button("❌ Clear Speech Text", key="clear_speech_text"):
-                st.session_state.speech_text = ""
-                st.session_state.speech_preview = ""
-                st.rerun()
-    
-    # Regular chat input - check for pending input from speech
     user_input = None
-    if "pending_input" in st.session_state and st.session_state.pending_input:
-        user_input = st.session_state.pending_input
-        del st.session_state.pending_input
+    
+    # Check for auto-submitted text from speech
+    if st.session_state.auto_submit_text:
+        user_input = st.session_state.auto_submit_text
+        del st.session_state.auto_submit_text
     else:
-        user_input = st.chat_input("Type your answer here...")
+        # Regular chat input with spell checking
+        chat_input_container = st.container()
+        with chat_input_container:
+            user_input = st.chat_input("Type your answer here...")
+            
+            # Show spelling suggestions above input
+            if user_input and st.session_state.spellcheck_enabled:
+                _, suggestions = check_spelling(user_input)
+                if suggestions:
+                    st.markdown('<div class="spelling-suggestion">', unsafe_allow_html=True)
+                    st.write("**Spelling suggestions:**")
+                    for wrong, correct in suggestions[:3]:
+                        st.write(f"• '{wrong}' → '{correct}'")
+                    st.markdown('</div>', unsafe_allow_html=True)
     
     if user_input:
         current_chapter_id = current_chapter["id"]
         current_question_text = current_chapter["questions"][st.session_state.current_question]
         
-        # Get conversation for this question
         if current_chapter_id not in st.session_state.chapter_conversations:
             st.session_state.chapter_conversations[current_chapter_id] = {}
         
@@ -1327,11 +1125,12 @@ if st.session_state.editing is None:
         
         conversation = st.session_state.chapter_conversations[current_chapter_id][current_question_text]
         
+        # Auto-correct before adding to conversation
+        if st.session_state.spellcheck_enabled:
+            user_input = auto_correct_text(user_input)
+        
         # Add user message
         conversation.append({"role": "user", "content": user_input})
-        
-        # Show updated word count after adding response
-        updated_word_count = calculate_chapter_word_count(current_chapter_id)
         
         # Generate AI response
         with st.chat_message("assistant"):
@@ -1339,10 +1138,9 @@ if st.session_state.editing is None:
                 try:
                     messages_for_api = [
                         {"role": "system", "content": get_system_prompt()},
-                        *conversation[-5:]  # Last 5 messages for context
+                        *conversation[-5:]
                     ]
                     
-                    # Adjust parameters based on mode
                     if st.session_state.ghostwriter_mode:
                         temperature = 0.8
                         max_tokens = 400
@@ -1359,30 +1157,25 @@ if st.session_state.editing is None:
                     
                     ai_response = response.choices[0].message.content
                     
-                    # Add word count info to response in professional mode
-                    if st.session_state.ghostwriter_mode and updated_word_count > 0:
-                        target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
-                        progress = (updated_word_count / target_words * 100) if target_words > 0 else 100
-                        
-                        # Add subtle word count encouragement
-                        if progress < 50:
-                            ai_response += f"\n\n*Note: You're building good material here. Current chapter: {updated_word_count}/{target_words} words.*"
-                        elif progress < 80:
-                            ai_response += f"\n\n*Good progress on this chapter: {updated_word_count}/{target_words} words.*"
-                        elif progress < 100:
-                            ai_response += f"\n\n*Excellent detail! Almost at your target: {updated_word_count}/{target_words} words.*"
-                        else:
-                            ai_response += f"\n\n*Fantastic! You've exceeded your word target: {updated_word_count}/{target_words} words.*"
+                    # Add word count encouragement
+                    updated_word_count = calculate_chapter_word_count(current_chapter_id)
+                    target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
+                    progress = (updated_word_count / target_words * 100) if target_words > 0 else 100
+                    
+                    if progress < 50:
+                        ai_response += f"\n\n*Note: You're building good material here. Current chapter: {updated_word_count}/{target_words} words.*"
+                    elif progress < 80:
+                        ai_response += f"\n\n*Good progress on this chapter: {updated_word_count}/{target_words} words.*"
+                    elif progress < 100:
+                        ai_response += f"\n\n*Excellent detail! Almost at your target: {updated_word_count}/{target_words} words.*"
+                    else:
+                        ai_response += f"\n\n*Fantastic! You've exceeded your word target: {updated_word_count}/{target_words} words.*"
                     
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
                     
                 except Exception as e:
-                    if st.session_state.ghostwriter_mode:
-                        error_msg = "Thank you for that. Your response gives us good material to work with."
-                    else:
-                        error_msg = "Thank you for sharing that. Your response has been saved."
-                    
+                    error_msg = "Thank you for sharing that. Your response has been saved."
                     st.markdown(error_msg)
                     conversation.append({"role": "assistant", "content": error_msg})
         
@@ -1392,14 +1185,11 @@ if st.session_state.editing is None:
         # Update conversation
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         
-        # Clear speech text if it was used
-        if user_input == st.session_state.get("speech_text", ""):
-            st.session_state.speech_text = ""
-            st.session_state.speech_preview = ""
-        
         st.rerun()
 
-# Footer with current stats
+# ============================================================================
+# SECTION 15: FOOTER WITH STATISTICS
+# ============================================================================
 st.divider()
 col1, col2, col3 = st.columns(3)
 with col1:
