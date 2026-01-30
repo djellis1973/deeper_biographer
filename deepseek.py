@@ -4,13 +4,14 @@ from datetime import datetime
 from openai import OpenAI
 import os
 import sqlite3
+import re  # For word counting
 
 # ────────────────────────────────────────────────
 # CLEAN BRANDING WITH LOGO - FIXED SPACING
 # ────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# Clean CSS with fixed logo spacing
+# Enhanced CSS with traffic light system
 st.markdown(f"""
 <style>
     /* Fix header spacing */
@@ -86,84 +87,54 @@ st.markdown(f"""
         margin-top: 0.5rem;
     }}
     
-    /* Speech recording button styles */
-    .speech-button {{
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        border: none;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-    }}
-    
-    .speech-button-primary {{
-        background-color: #4CAF50;
-        color: white;
-    }}
-    
-    .speech-button-primary:hover {{
-        background-color: #45a049;
-    }}
-    
-    .speech-button-recording {{
-        background-color: #f44336;
-        color: white;
-        animation: pulse 1.5s infinite;
-    }}
-    
-    @keyframes pulse {{
-        0% {{ opacity: 1; }}
-        50% {{ opacity: 0.7; }}
-        100% {{ opacity: 1; }}
-    }}
-    
-    .speech-status {{
-        font-size: 0.9rem;
-        padding: 0.5rem;
-        border-radius: 5px;
-        margin-top: 0.5rem;
-        display: none;
-    }}
-    
-    .speech-status-listening {{
-        background-color: #e8f5e8;
-        border-left: 4px solid #4CAF50;
-        display: block;
-    }}
-    
-    .speech-status-processing {{
-        background-color: #fff3e0;
-        border-left: 4px solid #ff9800;
-        display: block;
-    }}
-    
-    .speech-status-error {{
-        background-color: #ffebee;
-        border-left: 4px solid #f44336;
-        display: block;
-    }}
-    
-    .speech-preview {{
-        background-color: #f9f9f9;
+    /* Word count styling */
+    .word-count-box {{
+        background-color: #f8f9fa;
         padding: 1rem;
         border-radius: 8px;
-        border: 1px solid #e0e0e0;
+        margin: 1rem 0;
+        border: 2px solid #e0e0e0;
+    }}
+    
+    .traffic-light {{
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        margin-right: 8px;
+        vertical-align: middle;
+    }}
+    
+    .traffic-green {{
+        background-color: #2ecc71;
+        box-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+    }}
+    
+    .traffic-yellow {{
+        background-color: #f39c12;
+        box-shadow: 0 0 10px rgba(243, 156, 18, 0.5);
+    }}
+    
+    .traffic-red {{
+        background-color: #e74c3c;
+        box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+    }}
+    
+    /* Audio input styling */
+    .audio-recording {{
+        background-color: #e8f5e9;
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        border: 2px solid #4caf50;
+    }}
+    
+    .audio-preview {{
+        background-color: #f5f5f5;
+        padding: 1rem;
+        border-radius: 8px;
         margin-top: 1rem;
-        font-size: 0.95rem;
-        line-height: 1.5;
-    }}
-    
-    .speech-controls {{
-        display: flex;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-    }}
-    
-    .mic-icon {{
-        font-size: 1.2rem;
+        border-left: 4px solid #2196f3;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -186,7 +157,8 @@ CHAPTERS = [
             "Is there a moment from childhood that shaped who you are?",
             "If you could give your younger self some advice, what would it be?"
         ],
-        "completed": False
+        "completed": False,
+        "word_target": 800  # New: word count target per chapter
     },
     {
         "id": 2,
@@ -199,7 +171,8 @@ CHAPTERS = [
             "Can you share a story about a family celebration or challenge?",
             "How did your family shape your values?"
         ],
-        "completed": False
+        "completed": False,
+        "word_target": 700  # New: word count target per chapter
     },
     {
         "id": 3,
@@ -213,7 +186,8 @@ CHAPTERS = [
             "Did you pursue further education or training?",
             "What advice would you give about learning?"
         ],
-        "completed": False
+        "completed": False,
+        "word_target": 600  # New: word count target per chapter
     }
 ]
 
@@ -230,6 +204,12 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS word_targets (
+            chapter_id INTEGER PRIMARY KEY,
+            word_target INTEGER DEFAULT 500
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -244,10 +224,10 @@ if "responses" not in st.session_state:
     st.session_state.chapter_conversations = {}  # {chapter_id: {question_text: conversation}}
     st.session_state.editing = None  # (chapter_id, question_text, message_index)
     st.session_state.edit_text = ""
-    st.session_state.ghostwriter_mode = True  # New: Professional mode toggle
-    st.session_state.show_speech = True  # New: Control speech UI visibility
-    st.session_state.speech_text = ""  # New: Store speech recognition text
-    st.session_state.speech_preview = ""  # New: Store speech preview
+    st.session_state.ghostwriter_mode = True
+    st.session_state.show_speech = True
+    st.session_state.speech_text = ""
+    st.session_state.speech_preview = ""
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -256,9 +236,22 @@ if "responses" not in st.session_state:
             "title": chapter["title"],
             "questions": {},
             "summary": "",
-            "completed": False
+            "completed": False,
+            "word_target": chapter.get("word_target", 500)
         }
         st.session_state.chapter_conversations[chapter_id] = {}  # Empty dict for questions
+    
+    # Load word targets from database
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT chapter_id, word_target FROM word_targets")
+        for chapter_id, word_target in cursor.fetchall():
+            if chapter_id in st.session_state.responses:
+                st.session_state.responses[chapter_id]["word_target"] = word_target
+        conn.close()
+    except:
+        pass
 
 # Load user data from database
 def load_user_data():
@@ -296,7 +289,8 @@ def save_response(chapter_id, question, answer):
             "title": CHAPTERS[chapter_id-1]["title"],
             "questions": {},
             "summary": "",
-            "completed": False
+            "completed": False,
+            "word_target": CHAPTERS[chapter_id-1].get("word_target", 500)
         }
     
     st.session_state.responses[chapter_id]["questions"][question] = {
@@ -317,6 +311,59 @@ def save_response(chapter_id, question, answer):
         conn.close()
     except:
         pass
+
+# Save word target to database
+def save_word_target(chapter_id, word_target):
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO word_targets 
+            (chapter_id, word_target) 
+            VALUES (?, ?)
+        """, (chapter_id, word_target))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+# Calculate word count for a chapter
+def calculate_chapter_word_count(chapter_id):
+    """Calculate total words for a chapter"""
+    total_words = 0
+    chapter_data = st.session_state.responses.get(chapter_id, {})
+    conversations = st.session_state.chapter_conversations.get(chapter_id, {})
+    
+    # Count words from saved responses
+    for question, answer_data in chapter_data.get("questions", {}).items():
+        if answer_data.get("answer"):
+            total_words += len(re.findall(r'\w+', answer_data["answer"]))
+    
+    # Count words from conversations
+    for question_text, conv in conversations.items():
+        for msg in conv:
+            if msg["role"] == "user":
+                total_words += len(re.findall(r'\w+', msg["content"]))
+    
+    return total_words
+
+# Get traffic light color and emoji
+def get_traffic_light(chapter_id):
+    """Return traffic light color and emoji based on word count progress"""
+    current_count = calculate_chapter_word_count(chapter_id)
+    target = st.session_state.responses[chapter_id].get("word_target", 500)
+    
+    if target == 0:
+        return "#2ecc71", "🟢", 100  # Green if no target
+    
+    progress = (current_count / target) * 100
+    
+    if progress >= 100:
+        return "#2ecc71", "🟢", progress  # Green
+    elif progress >= 70:
+        return "#f39c12", "🟡", progress  # Yellow
+    else:
+        return "#e74c3c", "🔴", progress  # Red
 
 # Clear entire chapter
 def clear_chapter(chapter_id):
@@ -356,7 +403,8 @@ def clear_all():
             "title": chapter["title"],
             "questions": {},
             "summary": "",
-            "completed": False
+            "completed": False,
+            "word_target": chapter.get("word_target", 500)
         }
         st.session_state.chapter_conversations[chapter_id] = {}
     
@@ -484,7 +532,7 @@ Summary:"""
     except Exception as e:
         return f"Could not generate summary: {str(e)}"
 
-# Post-processing for speech-to-text (basic cleanup)
+# Clean speech text
 def clean_speech_text(text):
     """Clean up speech recognition output"""
     if not text:
@@ -538,7 +586,7 @@ def export_json():
         chapter_data = st.session_state.responses.get(chapter_id, {})
         conversations = st.session_state.chapter_conversations.get(chapter_id, {})
         
-        # Get ALL Q&A for this chapter - include both main answers and conversation answers
+        # Get ALL Q&A for this chapter
         chapter_qa = {}
         chapter_full_conversations = {}
         
@@ -568,41 +616,27 @@ def export_json():
                 if conversation_history:
                     chapter_full_conversations[question_text] = conversation_history
                 
-                # If we have user answers, use them (prefer conversation over saved answer)
+                # If we have user answers, use them
                 if user_answers:
-                    # Join all user answers with newlines
                     chapter_qa[question_text] = "\n".join(user_answers)
                 elif main_answer:
-                    # Use saved answer if no conversation
                     chapter_qa[question_text] = main_answer
             elif main_answer:
-                # Use saved answer if no conversation exists
                 chapter_qa[question_text] = main_answer
         
-        # Only include chapters with ANY content (answers OR conversations)
-        if chapter_qa or chapter_full_conversations:
-            export_data["chapters"][str(chapter_id)] = {
-                "title": chapter["title"],
-                "guidance": chapter.get("guidance", ""),
-                "questions": chapter_qa,
-                "full_conversations": chapter_full_conversations,
-                "summary": chapter_data.get("summary", ""),
-                "completed": chapter_data.get("completed", False),
-                "total_questions": len(chapter["questions"]),
-                "answered_questions": len(chapter_qa)
-            }
-        else:
-            # Include empty chapters for completeness
-            export_data["chapters"][str(chapter_id)] = {
-                "title": chapter["title"],
-                "guidance": chapter.get("guidance", ""),
-                "questions": {},
-                "full_conversations": {},
-                "summary": "",
-                "completed": False,
-                "total_questions": len(chapter["questions"]),
-                "answered_questions": 0
-            }
+        # Include chapters with content
+        export_data["chapters"][str(chapter_id)] = {
+            "title": chapter["title"],
+            "guidance": chapter.get("guidance", ""),
+            "questions": chapter_qa,
+            "full_conversations": chapter_full_conversations,
+            "summary": chapter_data.get("summary", ""),
+            "completed": chapter_data.get("completed", False),
+            "word_count": calculate_chapter_word_count(chapter_id),
+            "word_target": chapter_data.get("word_target", 500),
+            "total_questions": len(chapter["questions"]),
+            "answered_questions": len(chapter_qa)
+        }
     
     return json.dumps(export_data, indent=2)
 
@@ -629,20 +663,14 @@ def export_text():
         chapter_content = []
         
         for question_text in chapter["questions"]:
-            # Check for saved answer
             has_saved_answer = question_text in chapter_data.get("questions", {})
-            
-            # Check for conversation
             has_conversation = question_text in conversations and conversations[question_text]
             
             if has_saved_answer or has_conversation:
                 chapter_has_content = True
-                
-                # Prepare question block
                 q_block = f"Q: {question_text}\n"
                 
                 if has_conversation:
-                    # Extract all user answers from conversation
                     user_answers = []
                     ai_messages = []
                     
@@ -650,26 +678,36 @@ def export_text():
                         if msg["role"] == "user":
                             user_answers.append(f"A: {msg['content']}")
                         elif msg["role"] == "assistant":
-                            # Clean up the AI welcome message if it's just the generic one
                             if not ("I'd love to hear your thoughts about this question:" in msg['content'] and len(conversations[question_text]) == 1):
                                 ai_messages.append(f"Interviewer: {msg['content']}")
                     
-                    # Add all conversation content
                     if user_answers:
                         q_block += "\n".join(user_answers) + "\n"
                     if ai_messages:
                         q_block += "\n".join(ai_messages) + "\n"
                 
                 elif has_saved_answer:
-                    # Use saved answer
                     q_block += f"A: {chapter_data['questions'][question_text].get('answer', '')}\n"
                 
                 chapter_content.append(q_block)
         
-        # Always include the chapter, but mark if empty
+        # Always include the chapter
         text += f"\n{'=' * 60}\n"
         text += f"CHAPTER {chapter_id}: {chapter['title']}\n"
         text += f"{'=' * 60}\n\n"
+        
+        # Add word count info
+        word_count = calculate_chapter_word_count(chapter_id)
+        word_target = chapter_data.get("word_target", 500)
+        progress = (word_count / word_target * 100) if word_target > 0 else 100
+        
+        text += f"Word Count: {word_count} / {word_target} ({progress:.1f}%)\n"
+        if progress >= 100:
+            text += "Status: 🟢 Target Achieved\n\n"
+        elif progress >= 70:
+            text += "Status: 🟡 Close to Target\n\n"
+        else:
+            text += "Status: 🔴 Needs More Content\n\n"
         
         # Add chapter guidance
         text += f"Chapter Introduction:\n{chapter.get('guidance', '')}\n\n"
@@ -678,7 +716,6 @@ def export_text():
             has_content = True
             text += f"{'-' * 50}\n\n"
             
-            # Add all questions and answers
             for i, q_block in enumerate(chapter_content):
                 text += q_block
                 if i < len(chapter_content) - 1:
@@ -706,11 +743,11 @@ def export_text():
     return text
 
 # ────────────────────────────────────────────────
-# STREAMLIT UI
+# STREAMLIT UI - UPDATED WITH NEW FEATURES
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="LifeStory AI", page_icon="📖", layout="wide")
 
-# Clean header with logo - FIXED SPACING
+# Clean header with logo
 st.markdown(f"""
 <div class="main-header">
     <img src="{LOGO_URL}" class="logo-img" alt="LifeStory AI Logo">
@@ -749,7 +786,8 @@ with st.sidebar:
                 "title": chapter["title"],
                 "questions": {},
                 "summary": "",
-                "completed": False
+                "completed": False,
+                "word_target": chapter.get("word_target", 500)
             }
             st.session_state.chapter_conversations[chapter_id] = {}
         
@@ -774,7 +812,7 @@ with st.sidebar:
     show_speech = st.toggle(
         "Show Speech Input",
         value=st.session_state.show_speech,
-        help="Show speech-to-text interface for voice input"
+        help="Show voice recording interface"
     )
     
     if show_speech != st.session_state.show_speech:
@@ -792,10 +830,15 @@ with st.sidebar:
     
     st.header("📖 Chapter Progress")
     
-    # Chapter progress tracker
+    # Chapter progress tracker with word counts
     for i, chapter in enumerate(CHAPTERS):
         chapter_id = chapter["id"]
         chapter_data = st.session_state.responses.get(chapter_id, {})
+        
+        # Calculate word count and traffic light
+        word_count = calculate_chapter_word_count(chapter_id)
+        target_words = chapter_data.get("word_target", 500)
+        color, emoji, progress = get_traffic_light(chapter_id)
         
         # Determine status
         if chapter_data.get("completed", False):
@@ -805,30 +848,60 @@ with st.sidebar:
         else:
             status = "●"
         
-        # Chapter button
-        if st.button(f"{status} Chapter {chapter['id']}: {chapter['title']}", 
+        # Chapter button with traffic light
+        button_text = f"{emoji} {status} Chapter {chapter['id']}: {chapter['title']}"
+        
+        if st.button(button_text, 
                     key=f"select_{i}",
-                    use_container_width=True):
+                    use_container_width=True,
+                    help=f"{word_count}/{target_words} words ({progress:.0f}%)"):
             st.session_state.current_chapter = i
             st.session_state.current_question = 0
             st.session_state.editing = None
             st.rerun()
         
-        # Show progress within chapter
-        questions_answered = len(chapter_data.get("questions", {}))
-        total_questions = len(chapter["questions"])
+        # Progress bar with word count
+        if target_words > 0:
+            progress_bar = min(word_count / target_words, 1.0)
+            st.progress(progress_bar)
+            
+            # Word count display
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.caption(f"📝 {word_count}/{target_words} words")
+            with col2:
+                if st.button("✏️", key=f"edit_target_{chapter_id}", help="Edit word target"):
+                    st.session_state[f"editing_target_{chapter_id}"] = True
         
-        if total_questions > 0:
-            progress = questions_answered / total_questions
-            st.progress(min(progress, 1.0))
-            st.caption(f"{questions_answered}/{total_questions} questions answered")
+        # Edit target input
+        if st.session_state.get(f"editing_target_{chapter_id}"):
+            new_target = st.number_input(
+                f"Target for Chapter {chapter_id}:",
+                min_value=100,
+                max_value=5000,
+                value=target_words,
+                key=f"target_input_{chapter_id}",
+                label_visibility="collapsed"
+            )
+            
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.button("💾 Save", key=f"save_target_{chapter_id}"):
+                    st.session_state.responses[chapter_id]["word_target"] = new_target
+                    save_word_target(chapter_id, new_target)
+                    st.session_state[f"editing_target_{chapter_id}"] = False
+                    st.rerun()
+            with col_cancel:
+                if st.button("❌ Cancel", key=f"cancel_target_{chapter_id}"):
+                    st.session_state[f"editing_target_{chapter_id}"] = False
+                    st.rerun()
     
     st.divider()
     
     # Navigation controls for moving between questions
     st.subheader("Question Navigation")
     
-    # Show current question number - LARGER
+    # Show current question number
     current_chapter = CHAPTERS[st.session_state.current_chapter]
     st.markdown(f'<div class="question-counter">Question {st.session_state.current_question + 1} of {len(current_chapter["questions"])}</div>', unsafe_allow_html=True)
     
@@ -941,7 +1014,7 @@ with st.sidebar:
     
     st.divider()
     st.caption("Built with DeepSeek AI • Your data is saved locally")
-    st.caption("Speech recognition uses browser's built-in Web Speech API")
+    st.caption(f"Audio recording uses Streamlit {st.__version__}")
 
 # Main content area - FULL WIDTH
 # Get current chapter
@@ -949,7 +1022,7 @@ current_chapter = CHAPTERS[st.session_state.current_chapter]
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
 
-# Show chapter header and question number with navigation
+# Show chapter header with word count
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Chapter {current_chapter['id']}: {current_chapter['title']}")
@@ -977,14 +1050,45 @@ with col3:
             st.session_state.editing = None
             st.rerun()
 
-# Show progress
+# WORD COUNT DISPLAY WITH TRAFFIC LIGHT SYSTEM
+current_word_count = calculate_chapter_word_count(current_chapter_id)
+target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
+color, emoji, progress_percent = get_traffic_light(current_chapter_id)
+
+# Display word count box
+st.markdown(f"""
+<div class="word-count-box">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h4 style="margin: 0; display: flex; align-items: center;">
+                <span class="traffic-light" style="background-color: {color};"></span>
+                Word Count: {current_word_count} / {target_words}
+            </h4>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
+                {emoji} {progress_percent:.0f}% of target • {target_words - current_word_count} words remaining
+            </p>
+        </div>
+        <div>
+            <span style="font-size: 1.2rem; font-weight: bold;">{emoji}</span>
+        </div>
+    </div>
+    <div style="margin-top: 1rem;">
+        <div style="height: 10px; background-color: #e0e0e0; border-radius: 5px; overflow: hidden;">
+            <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 5px;"></div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Show progress bar for questions
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
 questions_answered = len(chapter_data.get("questions", {}))
 total_questions = len(current_chapter["questions"])
 
 if total_questions > 0:
-    progress = questions_answered / total_questions
-    st.progress(min(progress, 1.0))
+    question_progress = questions_answered / total_questions
+    st.progress(min(question_progress, 1.0))
+    st.caption(f"Questions answered: {questions_answered}/{total_questions}")
 
 # Show chapter guidance
 st.markdown(f"""
@@ -993,68 +1097,90 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Show current question - IN A PROPER BOX
+# Show current question
 st.markdown(f"""
 <div class="question-box">
     {current_question_text}
 </div>
 """, unsafe_allow_html=True)
 
-# Show speech interface if enabled
+# UPDATED SPEECH INTERFACE USING STREAMLIT'S BUILT-IN AUDIO INPUT
 if st.session_state.show_speech:
     st.markdown("### 🎤 Speak Your Answer")
     st.markdown("""
-    <div style="background-color: #f0f7ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50; margin-bottom: 1rem;">
-        <strong>Voice Input Instructions:</strong>
+    <div class="audio-recording">
+        <strong>Voice Recording Instructions:</strong>
         <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-            <li>Click the microphone button to start recording</li>
-            <li>Speak clearly in UK English for best results</li>
-            <li>Click Stop when finished</li>
-            <li>Review your text below before submitting</li>
-            <li>Works best in Chrome, Edge, or Safari browsers</li>
+            <li>Click the microphone icon below to start recording</li>
+            <li>Speak clearly - your browser will record the audio</li>
+            <li>When finished, click the microphone again to stop</li>
+            <li>Your audio will be saved for transcription</li>
+            <li>Works in all modern browsers that support microphone access</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
     
-    # Speech interface using Streamlit components
-    col1, col2 = st.columns([1, 1])
+    # Streamlit's built-in audio input
+    audio_bytes = st.audio_input(
+        "Click to record your answer:",
+        key=f"audio_input_{current_chapter_id}_{st.session_state.current_question}"
+    )
     
-    with col1:
-        if st.button("🎤 Start Recording", type="primary", use_container_width=True, key="start_speech"):
-            # This will trigger JavaScript via HTML
-            st.session_state.speech_preview = "Recording... Speak now."
-            st.rerun()
+    if audio_bytes:
+        # Display the recorded audio
+        st.audio(audio_bytes, format="audio/wav")
+        
+        # Store audio bytes in session state for later use
+        st.session_state.audio_bytes = audio_bytes
+        
+        # Note about transcription
+        st.info("""
+        **Note:** You've recorded audio successfully! 
+        
+        To transcribe this audio to text, you would use OpenAI's Whisper API:
+        
+        ```python
+        # Example for transcribing the audio
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(audio_bytes)
+            with open(tmp.name, "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=audio_file
+                )
+        ```
+        
+        For now, please type or paste your answer in the text area below.
+        """)
     
-    with col2:
-        if st.button("⏹️ Stop Recording", type="secondary", use_container_width=True, key="stop_speech"):
-            st.session_state.speech_preview = "Processing..."
-            st.rerun()
-    
-    # Show speech preview if available
-    if st.session_state.speech_preview:
-        st.info(f"**Speech preview:** {st.session_state.speech_preview}")
-    
-    # Manual speech text input
+    # Manual text input for speech
     speech_text = st.text_area(
-        "Or paste speech recognition text here:",
+        "Type or paste your spoken answer here:",
         value=st.session_state.speech_text,
-        height=100,
+        height=150,
         key="speech_text_area",
-        placeholder="Paste your speech recognition text here, or type manually..."
+        placeholder="Type your answer here, or paste transcribed text..."
     )
     
     if speech_text != st.session_state.speech_text:
         st.session_state.speech_text = speech_text
     
-    # Use speech text button
-    if st.session_state.speech_text and st.button("✅ Use This Text", type="primary", use_container_width=True):
-        # Clean and use the speech text
-        cleaned_text = clean_speech_text(st.session_state.speech_text)
-        st.session_state.speech_preview = f"Ready to use: {cleaned_text[:100]}..."
-        st.session_state.speech_text = cleaned_text
+    if st.session_state.speech_text:
+        # Show word count for the speech text
+        speech_word_count = len(re.findall(r'\w+', st.session_state.speech_text))
+        st.caption(f"📝 Speech text word count: {speech_word_count} words")
+        
+        # Use speech text button
+        if st.button("✅ Use This Text for Answer", type="primary", use_container_width=True):
+            # Clean and use the speech text
+            cleaned_text = clean_speech_text(st.session_state.speech_text)
+            st.session_state.speech_preview = f"Ready to use: {cleaned_text[:100]}..."
+            st.session_state.speech_text = cleaned_text
+            # This will be picked up by the chat input below
     
     st.markdown("---")
-    st.markdown("### ✏️ Or Type Manually Below")
+    st.markdown("### ✏️ Or Continue with Chat Below")
 
 # Get conversation for current question
 current_chapter_id = current_chapter["id"]
@@ -1089,7 +1215,9 @@ if not conversation:
             # Professional ghostwriter welcome
             welcome_msg = f"""Let's explore this question properly: **{current_question_text}**
 
-Take your time with this—good biographies are built from thoughtful reflection rather than quick answers."""
+Take your time with this—good biographies are built from thoughtful reflection rather than quick answers.
+
+*Current chapter word count: {current_word_count}/{target_words} words*"""
         else:
             # Standard welcome
             welcome_msg = f"I'd love to hear your thoughts about this question: **{current_question_text}**"
@@ -1119,6 +1247,11 @@ else:
                         label_visibility="collapsed"
                     )
                     
+                    # Show word count while editing
+                    if new_text:
+                        edit_word_count = len(re.findall(r'\w+', new_text))
+                        st.caption(f"📝 Editing: {edit_word_count} words")
+                    
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("✓ Save", key=f"save_{current_chapter_id}_{hash(current_question_text)}_{i}", type="primary"):
@@ -1140,6 +1273,9 @@ else:
                     col1, col2 = st.columns([5, 1])
                     with col1:
                         st.markdown(message["content"])
+                        # Show word count for this answer
+                        word_count = len(re.findall(r'\w+', message["content"]))
+                        st.caption(f"📝 {word_count} words")
                     with col2:
                         if st.button("✏️", key=f"edit_{current_chapter_id}_{hash(current_question_text)}_{i}"):
                             st.session_state.editing = (current_chapter_id, current_question_text, i)
@@ -1151,23 +1287,32 @@ if st.session_state.editing is None:
     # Check if we have speech text to use
     if st.session_state.speech_text:
         # Show the speech text with option to use it
-        st.info(f"**Speech text ready:** {st.session_state.speech_text[:200]}...")
+        speech_word_count = len(re.findall(r'\w+', st.session_state.speech_text))
+        st.info(f"**Speech text ready ({speech_word_count} words):** {st.session_state.speech_text[:200]}...")
         
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✅ Use Speech Text", type="primary", key="use_speech_text"):
                 user_input = clean_speech_text(st.session_state.speech_text)
+                # Store for chat input
+                st.session_state.pending_input = user_input
                 # Clear speech text after use
                 st.session_state.speech_text = ""
                 st.session_state.speech_preview = ""
+                st.rerun()
         with col2:
             if st.button("❌ Clear Speech Text", key="clear_speech_text"):
                 st.session_state.speech_text = ""
                 st.session_state.speech_preview = ""
                 st.rerun()
     
-    # Regular chat input
-    user_input = st.chat_input("Type your answer here...")
+    # Regular chat input - check for pending input from speech
+    user_input = None
+    if "pending_input" in st.session_state and st.session_state.pending_input:
+        user_input = st.session_state.pending_input
+        del st.session_state.pending_input
+    else:
+        user_input = st.chat_input("Type your answer here...")
     
     if user_input:
         current_chapter_id = current_chapter["id"]
@@ -1185,19 +1330,22 @@ if st.session_state.editing is None:
         # Add user message
         conversation.append({"role": "user", "content": user_input})
         
+        # Show updated word count after adding response
+        updated_word_count = calculate_chapter_word_count(current_chapter_id)
+        
         # Generate AI response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
                     messages_for_api = [
                         {"role": "system", "content": get_system_prompt()},
-                        *conversation[-5:]  # Last 5 messages for context (increased for richer conversation)
+                        *conversation[-5:]  # Last 5 messages for context
                     ]
                     
                     # Adjust parameters based on mode
                     if st.session_state.ghostwriter_mode:
-                        temperature = 0.8  # Slightly more creative for professional responses
-                        max_tokens = 400   # Allow longer, more thoughtful responses
+                        temperature = 0.8
+                        max_tokens = 400
                     else:
                         temperature = 0.7
                         max_tokens = 300
@@ -1210,6 +1358,22 @@ if st.session_state.editing is None:
                     )
                     
                     ai_response = response.choices[0].message.content
+                    
+                    # Add word count info to response in professional mode
+                    if st.session_state.ghostwriter_mode and updated_word_count > 0:
+                        target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
+                        progress = (updated_word_count / target_words * 100) if target_words > 0 else 100
+                        
+                        # Add subtle word count encouragement
+                        if progress < 50:
+                            ai_response += f"\n\n*Note: You're building good material here. Current chapter: {updated_word_count}/{target_words} words.*"
+                        elif progress < 80:
+                            ai_response += f"\n\n*Good progress on this chapter: {updated_word_count}/{target_words} words.*"
+                        elif progress < 100:
+                            ai_response += f"\n\n*Excellent detail! Almost at your target: {updated_word_count}/{target_words} words.*"
+                        else:
+                            ai_response += f"\n\n*Fantastic! You've exceeded your word target: {updated_word_count}/{target_words} words.*"
+                    
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
                     
@@ -1229,84 +1393,22 @@ if st.session_state.editing is None:
         st.session_state.chapter_conversations[current_chapter_id][current_question_text] = conversation
         
         # Clear speech text if it was used
-        if user_input == st.session_state.speech_text:
+        if user_input == st.session_state.get("speech_text", ""):
             st.session_state.speech_text = ""
             st.session_state.speech_preview = ""
         
         st.rerun()
 
-# Simple JavaScript for speech recognition (as fallback) - ONLY SHOW WHEN SPEECH IS ENABLED
-if st.session_state.show_speech:
-    st.markdown("""
-    <script>
-    // Simple speech recognition example
-    function startRecordingSimple() {
-        if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-            alert('Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.');
-            return;
-        }
-        
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        
-        recognition.lang = 'en-GB';
-        recognition.interimResults = false;
-        
-        recognition.onresult = function(event) {
-            const transcript = event.results[0][0].transcript;
-            // Copy to clipboard as a simple way to get text back
-            navigator.clipboard.writeText(transcript).then(function() {
-                alert('Speech copied to clipboard! Paste it in the text area above.');
-            });
-        };
-        
-        recognition.start();
-    }
-    </script>
-    """, unsafe_allow_html=True)
-
-    # Note about speech recognition support - ONLY SHOW WHEN SPEECH IS ENABLED
-    st.markdown("""
-    <div style="font-size: 0.8rem; color: #666; margin-top: 2rem; padding: 1rem; background-color: #f9f9f9; border-radius: 5px;">
-        <strong>Note about Speech Recognition:</strong> For the best experience:
-        <ul style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-            <li>Use <strong>Chrome, Edge, or Safari</strong> for best speech recognition</li>
-            <li>On mobile: Use <strong>Chrome for Android</strong> or <strong>Safari for iOS</strong></li>
-            <li>Grant microphone permissions when prompted</li>
-            <li>Speak clearly in a quiet environment</li>
-            <li>Alternative: Use your device's built-in speech-to-text, then copy & paste</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Add instructions for using device speech recognition - ONLY SHOW WHEN SPEECH IS ENABLED
-    with st.expander("📱 Mobile & Device Speech Recognition Tips"):
-        st.markdown("""
-        ### Using Built-in Speech Recognition:
-        
-        **On iPhone/iPad:**
-        1. Tap the microphone button on your keyboard
-        2. Speak your answer
-        3. Tap Done, then copy the text
-        4. Paste it in the text area above
-        
-        **On Android:**
-        1. Tap the microphone button on Gboard or your keyboard
-        2. Speak your answer
-        3. Copy the text and paste it above
-        
-        **On Windows/Mac:**
-        1. Press **Windows key + H** (Windows) or enable Dictation (Mac)
-        2. Speak your answer
-        3. Copy and paste the text
-        
-        ### Browser Compatibility:
-        - ✅ **Chrome** - Best support, works on desktop & mobile
-        - ✅ **Edge** - Good support
-        - ✅ **Safari** - Works on Mac & iOS
-        - ⚠️ **Firefox** - Limited support
-        
-        The speech recognition happens in your browser—no audio is sent to any server.
-        """)
-
-
+# Footer with current stats
+st.divider()
+col1, col2, col3 = st.columns(3)
+with col1:
+    total_words_all_chapters = sum(calculate_chapter_word_count(ch["id"]) for ch in CHAPTERS)
+    st.metric("Total Words", f"{total_words_all_chapters}")
+with col2:
+    completed_chapters = sum(1 for ch in CHAPTERS if st.session_state.responses[ch["id"]].get("completed", False))
+    st.metric("Completed Chapters", f"{completed_chapters}/{len(CHAPTERS)}")
+with col3:
+    total_questions_answered = sum(len(st.session_state.responses[ch["id"]].get("questions", {})) for ch in CHAPTERS)
+    total_all_questions = sum(len(ch["questions"]) for ch in CHAPTERS)
+    st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
