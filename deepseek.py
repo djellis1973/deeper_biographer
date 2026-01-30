@@ -1056,20 +1056,3 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
-# ============================================================================
-# SECTION 15: FOOTER WITH STATISTICS
-# ============================================================================
-st.divider()
-col1, col2, col3 = st.columns(3)
-with col1:
-    total_words_all_sessions = sum(calculate_author_word_count(s["id"]) for s in SESSIONS)
-    st.metric("Total Words", f"{total_words_all_sessions}")
-with col2:
-    completed_sessions = sum(1 for s in SESSIONS if st.session_state.responses[s["id"]].get("completed", False))
-    st.metric("Completed Sessions", f"{completed_sessions}/{len(SESSIONS)}")
-with col3:
-    total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
-    total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
-    st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
-
-
