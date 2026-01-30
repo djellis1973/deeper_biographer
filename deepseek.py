@@ -169,11 +169,6 @@ st.markdown(f"""
         padding: 1rem;
         margin: 0.5rem 0;
     }}
-    
-    /* Hide the second change target button */
-    .hidden-button {{
-        display: none !important;
-    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -374,18 +369,21 @@ def save_word_target(chapter_id, word_target):
         pass
 
 def calculate_chapter_word_count(chapter_id):
+    """Calculate ONLY the user's words for their biography"""
     total_words = 0
-    chapter_data = st.session_state.responses.get(chapter_id, {})
     conversations = st.session_state.chapter_conversations.get(chapter_id, {})
     
-    for question, answer_data in chapter_data.get("questions", {}).items():
-        if answer_data.get("answer"):
-            total_words += len(re.findall(r'\w+', answer_data["answer"]))
-    
+    # Count ONLY user messages (NOT AI responses)
     for question_text, conv in conversations.items():
         for msg in conv:
             if msg["role"] == "user":
                 total_words += len(re.findall(r'\w+', msg["content"]))
+    
+    # Also count from saved responses (backward compatibility)
+    chapter_data = st.session_state.responses.get(chapter_id, {})
+    for question, answer_data in chapter_data.get("questions", {}).items():
+        if answer_data.get("answer"):
+            total_words += len(re.findall(r'\w+', answer_data["answer"]))
     
     return total_words
 
@@ -419,13 +417,12 @@ def transcribe_audio(audio_file):
             tmp.write(audio_bytes)
             tmp_path = tmp.name
         
-        # Use GPT-4o-transcribe for better accuracy
+        # Use Whisper for transcription only
         with open(tmp_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
-                model="whisper-1",  # You can try "gpt-4o-transcribe" for better accuracy if available
+                model="whisper-1",
                 file=audio_file,
-                language="en",
-                prompt="This is a personal life story interview. Transcribe exactly what the person says."
+                language="en"
             )
         
         # Clean up
@@ -725,9 +722,11 @@ with st.sidebar:
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("✅ Confirm Delete", type="primary", use_container_width=True, disabled=confirm_text != "DELETE CHAPTER"):
+            if st.button("✅ Confirm Delete", type="primary", use_container_width=True, 
+                        disabled=confirm_text != "DELETE CHAPTER"):
                 if confirm_text == "DELETE CHAPTER":
                     current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
+                    # Clear from database
                     try:
                         conn = sqlite3.connect('life_story.db')
                         cursor = conn.cursor()
@@ -735,12 +734,14 @@ with st.sidebar:
                                       (st.session_state.user_id, current_chapter_id))
                         conn.commit()
                         conn.close()
-                        st.session_state.responses[current_chapter_id]["questions"] = {}
-                        st.session_state.confirming_clear = None
-                        st.success("Chapter cleared!")
-                        st.rerun()
                     except:
                         pass
+                    # Clear from session state
+                    st.session_state.responses[current_chapter_id]["questions"] = {}
+                    if current_chapter_id in st.session_state.chapter_conversations:
+                        st.session_state.chapter_conversations[current_chapter_id] = {}
+                    st.session_state.confirming_clear = None
+                    st.rerun()
         with col2:
             if st.button("❌ Cancel", type="secondary", use_container_width=True):
                 st.session_state.confirming_clear = None
@@ -756,8 +757,10 @@ with st.sidebar:
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("✅ Confirm Delete All", type="primary", use_container_width=True, disabled=confirm_text != "DELETE ALL"):
+            if st.button("✅ Confirm Delete All", type="primary", use_container_width=True, 
+                        disabled=confirm_text != "DELETE ALL"):
                 if confirm_text == "DELETE ALL":
+                    # Clear from database
                     try:
                         conn = sqlite3.connect('life_story.db')
                         cursor = conn.cursor()
@@ -765,14 +768,16 @@ with st.sidebar:
                                       (st.session_state.user_id,))
                         conn.commit()
                         conn.close()
-                        for chapter in CHAPTERS:
-                            chapter_id = chapter["id"]
-                            st.session_state.responses[chapter_id]["questions"] = {}
-                        st.session_state.confirming_clear = None
-                        st.success("All data cleared!")
-                        st.rerun()
                     except:
                         pass
+                    # Clear from session state
+                    for chapter in CHAPTERS:
+                        chapter_id = chapter["id"]
+                        st.session_state.responses[chapter_id]["questions"] = {}
+                        if chapter_id in st.session_state.chapter_conversations:
+                            st.session_state.chapter_conversations[chapter_id] = {}
+                    st.session_state.confirming_clear = None
+                    st.rerun()
         with col2:
             if st.button("❌ Cancel", type="secondary", use_container_width=True):
                 st.session_state.confirming_clear = None
@@ -782,12 +787,14 @@ with st.sidebar:
     else:
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🗑️ Clear Chapter", type="secondary", use_container_width=True):
+            if st.button("🗑️ Clear Chapter", type="secondary", use_container_width=True, 
+                        help="Delete all answers in current chapter"):
                 st.session_state.confirming_clear = "chapter"
                 st.rerun()
         
         with col2:
-            if st.button("🔥 Clear All", type="secondary", use_container_width=True):
+            if st.button("🔥 Clear All", type="secondary", use_container_width=True, 
+                        help="Delete all answers in all chapters"):
                 st.session_state.confirming_clear = "all"
                 st.rerun()
 
@@ -834,33 +841,42 @@ status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "
 # Create the word count box with functional edit button INSIDE
 st.markdown(f"""
 <div class="word-count-box">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
         <div style="flex-grow: 1;">
             <h4 style="margin: 0; display: flex; align-items: center;">
-                <span class="traffic-light" style="background-color: {color};"></span>
-                Word Progress: {current_word_count} / {target_words}
+                <span class="traffic-light" style="background-color: {color}; margin-right: 8px;"></span>
+                Your Words: {current_word_count} / {target_words}
             </h4>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #666;">
                 {emoji} {progress_percent:.0f}% complete • {status_text}
             </p>
         </div>
+        <div>
+            <button onclick="document.getElementById('edit-target-btn').click()" style="
+                background: none;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 0.75rem;
+                cursor: pointer;
+                color: #666;
+            ">✏️ Edit</button>
+        </div>
     </div>
-    <div style="margin-top: 1rem;">
-        <div style="height: 8px; background-color: #e0e0e0; border-radius: 4px; overflow: hidden;">
-            <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 4px;"></div>
+    <div style="margin-top: 0.5rem;">
+        <div style="height: 6px; background-color: #e0e0e0; border-radius: 3px; overflow: hidden;">
+            <div style="height: 100%; width: {min(progress_percent, 100)}%; background-color: {color}; border-radius: 3px;"></div>
         </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Edit button that appears below the progress bar
-col_edit1, col_edit2, col_edit3 = st.columns([1, 2, 1])
-with col_edit2:
-    if st.button("✏️ Change Word Target", key="edit_word_target_button", use_container_width=True):
-        st.session_state.editing_word_target = not st.session_state.editing_word_target
-        st.rerun()
+# Hidden button to trigger edit mode (inside the box via JavaScript)
+if st.button("Edit", key="edit-target-btn", type="secondary", help="Edit word target"):
+    st.session_state.editing_word_target = not st.session_state.editing_word_target
+    st.rerun()
 
-# Show edit interface when triggered (appears below the box)
+# Show edit interface when triggered
 if st.session_state.editing_word_target:
     st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
     st.write("**Change Word Target**")
@@ -889,10 +905,6 @@ if st.session_state.editing_word_target:
             st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
-
-# Hidden button (actually removed)
-# if st.button("Change Target", key="edit-word-target", type="secondary", help="Edit word target"):
-#     st.session_state.editing_word_target = True
 
 # Questions progress
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
@@ -1101,18 +1113,12 @@ if st.session_state.editing is None and not st.session_state.editing_word_target
     # Check for auto-submitted text from speech
     if st.session_state.auto_submit_text:
         user_input = st.session_state.auto_submit_text
-        # Auto-correct if enabled
-        if st.session_state.spellcheck_enabled:
-            user_input = auto_correct_text(user_input)
-        # Clear the flag
+        # Clear the flag IMMEDIATELY
         st.session_state.auto_submit_text = None
+        st.session_state.audio_transcribed = False
     else:
         # Regular chat input
         user_input = st.chat_input("Type your answer here...")
-        
-        # Auto-correct as they type
-        if user_input and st.session_state.spellcheck_enabled:
-            user_input = auto_correct_text(user_input)
     
     if user_input:
         current_chapter_id = current_chapter["id"]
@@ -1129,13 +1135,17 @@ if st.session_state.editing is None and not st.session_state.editing_word_target
         # Add user message
         conversation.append({"role": "user", "content": user_input})
         
-        # Generate AI response
+        # Generate AI response (ONLY use conversation history, NOT transcription)
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
+                    # Get system prompt WITHOUT any transcription context
+                    system_prompt = get_system_prompt()
+                    
+                    # Create messages for API - ONLY conversation, no extra context
                     messages_for_api = [
-                        {"role": "system", "content": get_system_prompt()},
-                        *conversation[-5:]
+                        {"role": "system", "content": system_prompt},
+                        *conversation[-5:]  # Last 5 messages of actual conversation
                     ]
                     
                     if st.session_state.ghostwriter_mode:
@@ -1154,19 +1164,20 @@ if st.session_state.editing is None and not st.session_state.editing_word_target
                     
                     ai_response = response.choices[0].message.content
                     
-                    # Add word count encouragement
+                    # Add word count encouragement (user words only)
                     updated_word_count = calculate_chapter_word_count(current_chapter_id)
                     target_words = st.session_state.responses[current_chapter_id].get("word_target", 500)
                     progress = (updated_word_count / target_words * 100) if target_words > 0 else 100
                     
+                    # Add encouragement based on user's word count
                     if progress < 50:
-                        ai_response += f"\n\n*Note: You're building good material here. Current chapter: {updated_word_count}/{target_words} words.*"
+                        ai_response += f"\n\n*You're building good material here. Your words so far: {updated_word_count}/{target_words}.*"
                     elif progress < 80:
-                        ai_response += f"\n\n*Good progress on this chapter: {updated_word_count}/{target_words} words.*"
+                        ai_response += f"\n\n*Good progress on this chapter. Your words: {updated_word_count}/{target_words}.*"
                     elif progress < 100:
-                        ai_response += f"\n\n*Excellent detail! Almost at your target: {updated_word_count}/{target_words} words.*"
+                        ai_response += f"\n\n*Excellent detail! Almost at your target. Your words: {updated_word_count}/{target_words}.*"
                     else:
-                        ai_response += f"\n\n*Fantastic! You've exceeded your word target: {updated_word_count}/{target_words} words.*"
+                        ai_response += f"\n\n*Fantastic! You've exceeded your word target. Your words: {updated_word_count}/{target_words}.*"
                     
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
@@ -1191,7 +1202,7 @@ st.divider()
 col1, col2, col3 = st.columns(3)
 with col1:
     total_words_all_chapters = sum(calculate_chapter_word_count(ch["id"]) for ch in CHAPTERS)
-    st.metric("Total Words", f"{total_words_all_chapters}")
+    st.metric("Your Total Words", f"{total_words_all_chapters}")
 with col2:
     completed_chapters = sum(1 for ch in CHAPTERS if st.session_state.responses[ch["id"]].get("completed", False))
     st.metric("Completed Chapters", f"{completed_chapters}/{len(CHAPTERS)}")
