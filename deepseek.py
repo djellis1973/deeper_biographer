@@ -782,7 +782,7 @@ if total_questions > 0:
     st.caption(f"📝 Questions answered: {questions_answered}/{total_questions} ({question_progress*100:.0f}%)")
 
 # ============================================================================
-# SECTION 12: CONVERSATION DISPLAY
+# SECTION 12: CONVERSATION DISPLAY AND CHAT INPUT
 # ============================================================================
 current_session_id = current_session["id"]
 current_question_text = current_session["questions"][st.session_state.current_question]
@@ -857,35 +857,34 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 13: CHAT INPUT WITH EXPERT CRITIQUE - MUST BE DIRECTLY BELOW CONVERSATION
+# CHAT INPUT BOX - MUST BE DIRECTLY HERE
 # ============================================================================
-user_input = st.chat_input("Type your answer here...")
 
-if user_input:
-    current_session_id = current_session["id"]
-    current_question_text = current_session["questions"][st.session_state.current_question]
+# Create a container for the chat input
+input_container = st.container()
+
+with input_container:
+    # Add some spacing
+    st.write("")
+    st.write("")
     
-    if current_session_id not in st.session_state.session_conversations:
-        st.session_state.session_conversations[current_session_id] = {}
+    # Create the chat input
+    user_input = st.chat_input("Type your answer here...")
     
-    if current_question_text not in st.session_state.session_conversations[current_session_id]:
-        st.session_state.session_conversations[current_session_id][current_question_text] = []
-    
-    conversation = st.session_state.session_conversations[current_session_id][current_question_text]
-    
-    # Auto-correct as they type
-    if st.session_state.spellcheck_enabled:
-        user_input = auto_correct_text(user_input)
-    
-    # Add user message
-    conversation.append({"role": "user", "content": user_input})
-    
-    # Generate AI response with expert critique
-    with st.chat_message("assistant"):
-        with st.spinner("Reflecting on your story..."):
-            try:
-                # First, analyze the user's response for critique
-                critique_prompt = f"""As a professional ghostwriter, analyze this response to the question: "{current_question_text}"
+    if user_input:
+        # Auto-correct as they type
+        if st.session_state.spellcheck_enabled:
+            user_input = auto_correct_text(user_input)
+        
+        # Add user message to conversation
+        conversation.append({"role": "user", "content": user_input})
+        
+        # Generate AI response with expert critique
+        with st.chat_message("assistant"):
+            with st.spinner("Reflecting on your story..."):
+                try:
+                    # First, analyze the user's response for critique
+                    critique_prompt = f"""As a professional ghostwriter, analyze this response to the question: "{current_question_text}"
 
 USER'S RESPONSE:
 {user_input}
@@ -897,53 +896,20 @@ Provide a brief professional assessment (3-4 sentences max) focusing on:
 
 Keep it concise, constructive, and professional. Focus on storytelling craft, not praise."""
 
-                critique_response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "You're a seasoned biographer with 30 years experience. You provide sharp, constructive feedback that helps writers find their most compelling stories."},
-                        {"role": "user", "content": critique_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=200
-                )
-                
-                critique = critique_response.choices[0].message.content
-                
-                # Now generate the conversational follow-up
-                conversation_history = conversation[:-1]  # Get everything except the just-added user message
-                
-                messages_for_api = [
-                    {"role": "system", "content": get_system_prompt()},
-                    *conversation_history,
-                    {"role": "user", "content": user_input}
-                ]
-                
-                if st.session_state.ghostwriter_mode:
-                    temperature = 0.8
-                    max_tokens = 400
-                else:
-                    temperature = 0.7
-                    max_tokens = 300
-                
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=messages_for_api,
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-                
-                ai_response = response.choices[0].message.content
-                
-                # Add the expert critique at the end
-                ai_response += f"\n\n---\n\n**Professional note:** {critique}"
-                
-                st.markdown(ai_response)
-                conversation.append({"role": "assistant", "content": ai_response})
-                
-            except Exception as e:
-                # Fallback if critique fails
-                try:
-                    conversation_history = conversation[:-1]
+                    critique_response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "You're a seasoned biographer with 30 years experience. You provide sharp, constructive feedback that helps writers find their most compelling stories."},
+                            {"role": "user", "content": critique_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=200
+                    )
+                    
+                    critique = critique_response.choices[0].message.content
+                    
+                    # Now generate the conversational follow-up
+                    conversation_history = conversation[:-1]  # Get everything except the just-added user message
                     
                     messages_for_api = [
                         {"role": "system", "content": get_system_prompt()},
@@ -951,42 +917,75 @@ Keep it concise, constructive, and professional. Focus on storytelling craft, no
                         {"role": "user", "content": user_input}
                     ]
                     
+                    if st.session_state.ghostwriter_mode:
+                        temperature = 0.8
+                        max_tokens = 400
+                    else:
+                        temperature = 0.7
+                        max_tokens = 300
+                    
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=messages_for_api,
-                        temperature=0.8,
-                        max_tokens=400
+                        temperature=temperature,
+                        max_tokens=max_tokens
                     )
                     
                     ai_response = response.choices[0].message.content
                     
-                    # Add a thoughtful observation instead
-                    word_count = len(re.findall(r'\w+', user_input))
-                    if word_count < 50:
-                        ai_response += f"\n\n**Observation:** You've touched on something important here. What would happen if you slowed down this moment? What details are just outside the frame of this memory?"
-                    elif word_count < 150:
-                        ai_response += f"\n\n**Observation:** There's good texture in this recollection. I'm noticing where the emotion lives in this story—let's explore that space more deliberately."
-                    else:
-                        ai_response += f"\n\n**Observation:** This has real narrative weight. The challenge now is curation—what's the through-line that makes this memory essential to your story?"
+                    # Add the expert critique at the end
+                    ai_response += f"\n\n---\n\n**Professional note:** {critique}"
                     
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
                     
-                except Exception as e2:
-                    error_msg = "Thank you for sharing that. Your response has been saved."
-                    st.markdown(error_msg)
-                    conversation.append({"role": "assistant", "content": error_msg})
-    
-    # Save to database
-    save_response(current_session_id, current_question_text, user_input)
-    
-    # Update conversation
-    st.session_state.session_conversations[current_session_id][current_question_text] = conversation
-    
-    st.rerun()
+                except Exception as e:
+                    # Fallback if critique fails
+                    try:
+                        conversation_history = conversation[:-1]
+                        
+                        messages_for_api = [
+                            {"role": "system", "content": get_system_prompt()},
+                            *conversation_history,
+                            {"role": "user", "content": user_input}
+                        ]
+                        
+                        response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=messages_for_api,
+                            temperature=0.8,
+                            max_tokens=400
+                        )
+                        
+                        ai_response = response.choices[0].message.content
+                        
+                        # Add a thoughtful observation instead
+                        word_count = len(re.findall(r'\w+', user_input))
+                        if word_count < 50:
+                            ai_response += f"\n\n**Observation:** You've touched on something important here. What would happen if you slowed down this moment? What details are just outside the frame of this memory?"
+                        elif word_count < 150:
+                            ai_response += f"\n\n**Observation:** There's good texture in this recollection. I'm noticing where the emotion lives in this story—let's explore that space more deliberately."
+                        else:
+                            ai_response += f"\n\n**Observation:** This has real narrative weight. The challenge now is curation—what's the through-line that makes this memory essential to your story?"
+                        
+                        st.markdown(ai_response)
+                        conversation.append({"role": "assistant", "content": ai_response})
+                        
+                    except Exception as e2:
+                        error_msg = "Thank you for sharing that. Your response has been saved."
+                        st.markdown(error_msg)
+                        conversation.append({"role": "assistant", "content": error_msg})
+        
+        # Save to database
+        save_response(current_session_id, current_question_text, user_input)
+        
+        # Update conversation
+        st.session_state.session_conversations[current_session_id][current_question_text] = conversation
+        
+        st.rerun()
 
 # ============================================================================
-# SECTION 14: WORD PROGRESS INDICATOR (BELOW CHAT INPUT)
+# SECTION 13: WORD PROGRESS INDICATOR (BELOW CHAT INPUT)
 # ============================================================================
 st.divider()
 
@@ -1043,6 +1042,21 @@ if st.session_state.editing_word_target:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================================
+# SECTION 14: FOOTER WITH STATISTICS
+# ============================================================================
+st.divider()
+col1, col2, col3 = st.columns(3)
+with col1:
+    total_words_all_sessions = sum(calculate_author_word_count(s["id"]) for s in SESSIONS)
+    st.metric("Total Words", f"{total_words_all_sessions}")
+with col2:
+    completed_sessions = sum(1 for s in SESSIONS if st.session_state.responses[s["id"]].get("completed", False))
+    st.metric("Completed Sessions", f"{completed_sessions}/{len(SESSIONS)}")
+with col3:
+    total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
+    total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
+    st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+# ============================================================================
 # SECTION 15: FOOTER WITH STATISTICS
 # ============================================================================
 st.divider()
@@ -1057,4 +1071,5 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
 
