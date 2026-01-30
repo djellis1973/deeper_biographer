@@ -1,4 +1,4 @@
-# biography_publisher.py - REAL PUBLISHER (NO SAMPLE DATA)
+# biography_publisher.py - REAL PUBLISHER WITH AUTO-FILLED NAME
 import streamlit as st
 import sqlite3
 from datetime import datetime
@@ -17,42 +17,7 @@ def get_real_user_stories(user_name):
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
         
-        # DEBUG: Check what's in the database
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = cursor.fetchall()
-        st.write(f"🔍 **Debug: Found tables:** {tables}")
-        
-        # Check if responses table exists
-        if ('responses',) in tables:
-            st.success("✅ Found 'responses' table!")
-            
-            # Show table structure
-            cursor.execute("PRAGMA table_info(responses);")
-            columns = cursor.fetchall()
-            st.write(f"📋 **Table columns:** {[col[1] for col in columns]}")
-            
-            # Show all users in database
-            cursor.execute("SELECT DISTINCT user_id FROM responses;")
-            users = cursor.fetchall()
-            st.write(f"👥 **Users in database:** {[user[0] for user in users]}")
-            
-            # Show count of stories for this user
-            cursor.execute("SELECT COUNT(*) FROM responses WHERE user_id = ?", (user_name,))
-            count = cursor.fetchone()[0]
-            st.write(f"📊 **Stories for '{user_name}':** {count}")
-            
-            if count > 0:
-                # Show sample of what we'll retrieve
-                cursor.execute("SELECT session_id, question, answer, timestamp FROM responses WHERE user_id = ? LIMIT 2", (user_name,))
-                samples = cursor.fetchall()
-                st.write(f"📝 **Sample stories:**")
-                for session_id, question, answer, timestamp in samples:
-                    st.write(f"  - Session {session_id}: '{question[:50]}...'")
-        else:
-            st.error("❌ 'responses' table not found in database!")
-            return []
-        
-        # Query to get all responses for this user (EXACT MATCH to your main app)
+        # Query to get all responses for this user
         cursor.execute("""
             SELECT session_id, question, answer, timestamp 
             FROM responses 
@@ -64,8 +29,6 @@ def get_real_user_stories(user_name):
         
         stories = cursor.fetchall()
         conn.close()
-        
-        st.write(f"✅ **Query successful! Found {len(stories)} raw records**")
         
         # Format the data
         formatted_stories = []
@@ -81,8 +44,6 @@ def get_real_user_stories(user_name):
         
     except Exception as e:
         st.error(f"⚠️ Database error: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
         return []
 
 # ============================================================================
@@ -116,13 +77,27 @@ def create_real_biography(stories, author_name):
     return bio_text
 
 # ============================================================================
-# 3. MAIN APP INTERFACE
+# 3. MAIN APP INTERFACE WITH URL PARAMETER SUPPORT
 # ============================================================================
 st.markdown("### 🔍 Find Your Real Stories")
-st.write("**Enter your exact name** as used in the main interview app:")
 
-# User input
-user_name = st.text_input("**Your Name:**", key="real_name", placeholder="e.g., David Ellis")
+# Try to get name from URL parameters first
+try:
+    query_params = st.experimental_get_query_params()
+    url_name = query_params.get("name", [None])[0]
+except:
+    url_name = None
+
+# User input - pre-fill if name came from URL
+if url_name:
+    st.info(f"📋 Name received from main app: **{url_name}**")
+    # Pre-fill the input with the URL parameter
+    user_name = st.text_input("**Your Name:**", value=url_name, key="real_name")
+    auto_filled = True
+else:
+    st.write("**Enter your exact name** as used in the main interview app:")
+    user_name = st.text_input("**Your Name:**", key="real_name", placeholder="e.g., David Ellis")
+    auto_filled = False
 
 # Search button
 if st.button("🔎 Search Database", type="primary"):
@@ -134,7 +109,11 @@ if st.button("🔎 Search Database", type="primary"):
             if real_stories:
                 st.session_state.real_stories = real_stories
                 st.session_state.real_author = user_name
-                st.success(f"✅ Found **{len(real_stories)}** real story(s) for **{user_name}**!")
+                
+                if auto_filled:
+                    st.success(f"✅ Found **{len(real_stories)}** stories for you, **{user_name}**!")
+                else:
+                    st.success(f"✅ Found **{len(real_stories)}** real story(s) for **{user_name}**!")
                 
                 # Show quick stats
                 col1, col2 = st.columns(2)
@@ -155,11 +134,10 @@ if st.button("🔎 Search Database", type="primary"):
             else:
                 st.warning(f"❌ No stories found for '{user_name}'.")
                 st.info("""
-                **Tips:**
-                1. Use the **exact name** from your main app
-                2. Check capitalization (David vs david)
-                3. Make sure you've saved stories in the main app first
-                4. Wait a moment after saving in main app before checking here
+                **Possible reasons:**
+                1. Use the **exact name** from your main app (check capitalization)
+                2. Make sure you've saved stories in the main app first
+                3. Wait a moment after saving before checking here
                 """)
     else:
         st.info("Please enter your name first.")
@@ -202,4 +180,4 @@ if 'real_stories' in st.session_state and st.session_state.real_stories:
 # 5. FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("📊 **Connected to real database** | Debug mode active")
+st.caption("📊 **Connected to real database** | Auto-fill enabled from main app")
