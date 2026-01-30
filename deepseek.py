@@ -117,6 +117,42 @@ st.markdown(f"""
         padding: 1rem;
         margin: 0.5rem 0;
     }}
+    
+    /* Word count progress box styling */
+    .progress-container {{
+        background-color: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 2px solid #e0e0e0;
+        margin: 1rem 0;
+    }}
+    
+    .progress-header {{
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-bottom: 1rem;
+        color: #2c3e50;
+    }}
+    
+    .progress-status {{
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .progress-bar-container {{
+        height: 10px;
+        background-color: #e0e0e0;
+        border-radius: 5px;
+        overflow: hidden;
+        margin: 1rem 0;
+    }}
+    
+    .progress-bar-fill {{
+        height: 100%;
+        border-radius: 5px;
+        transition: width 0.3s ease;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -318,6 +354,40 @@ def calculate_author_word_count(session_id):
             total_words += len(re.findall(r'\w+', answer_data["answer"]))
     
     return total_words
+
+def get_progress_info(session_id):
+    current_count = calculate_author_word_count(session_id)
+    target = st.session_state.responses[session_id].get("word_target", 500)
+    
+    if target == 0:
+        progress_percent = 100
+        emoji = "🟢"
+        color = "#2ecc71"
+    else:
+        progress_percent = (current_count / target) * 100 if target > 0 else 100
+        
+        if progress_percent >= 100:
+            emoji = "🟢"
+            color = "#2ecc71"
+        elif progress_percent >= 70:
+            emoji = "🟡"
+            color = "#f39c12"
+        else:
+            emoji = "🔴"
+            color = "#e74c3c"
+    
+    remaining_words = max(0, target - current_count)
+    status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
+    
+    return {
+        "current_count": current_count,
+        "target": target,
+        "progress_percent": progress_percent,
+        "emoji": emoji,
+        "color": color,
+        "remaining_words": remaining_words,
+        "status_text": status_text
+    }
 
 # ============================================================================
 # SECTION 7: AUTO-CORRECT FUNCTION
@@ -787,7 +857,64 @@ else:
                             st.rerun()
 
 # ============================================================================
-# SECTION 13: CHAT INPUT WITH EXPERT CRITIQUE
+# SECTION 13: WORD PROGRESS INDICATOR (ADDED BACK)
+# ============================================================================
+st.divider()
+
+# Get progress info
+progress_info = get_progress_info(current_session_id)
+
+# Display progress container
+st.markdown(f"""
+<div class="progress-container">
+    <div class="progress-header">📊 Session Progress</div>
+    <div class="progress-status">{progress_info['emoji']} {progress_info['progress_percent']:.0f}% complete • {progress_info['status_text']}</div>
+    <div class="progress-bar-container">
+        <div class="progress-bar-fill" style="width: {min(progress_info['progress_percent'], 100)}%; background-color: {progress_info['color']};"></div>
+    </div>
+    <div style="text-align: center; font-size: 0.9rem; color: #666; margin-top: 0.5rem;">
+        {progress_info['current_count']} / {progress_info['target']} words
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Edit target button
+if st.button("✏️ Change Word Target", key="edit_word_target_bottom", use_container_width=True):
+    st.session_state.editing_word_target = not st.session_state.editing_word_target
+    st.rerun()
+
+# Show edit interface when triggered
+if st.session_state.editing_word_target:
+    st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
+    st.write("**Change Word Target**")
+    
+    new_target = st.number_input(
+        "Target words for this session:",
+        min_value=100,
+        max_value=5000,
+        value=progress_info['target'],
+        key="target_edit_input_bottom",
+        label_visibility="collapsed"
+    )
+    
+    col_save, col_cancel = st.columns(2)
+    with col_save:
+        if st.button("💾 Save", key="save_word_target_bottom", type="primary", use_container_width=True):
+            # Update session state
+            st.session_state.responses[current_session_id]["word_target"] = new_target
+            # Update database
+            save_word_target(current_session_id, new_target)
+            st.session_state.editing_word_target = False
+            st.rerun()
+    with col_cancel:
+        if st.button("❌ Cancel", key="cancel_word_target_bottom", use_container_width=True):
+            st.session_state.editing_word_target = False
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ============================================================================
+# SECTION 14: CHAT INPUT WITH EXPERT CRITIQUE
 # ============================================================================
 user_input = st.chat_input("Type your answer here...")
 
@@ -916,7 +1043,7 @@ Keep it concise, constructive, and professional. Focus on storytelling craft, no
     st.rerun()
 
 # ============================================================================
-# SECTION 14: FOOTER WITH STATISTICS
+# SECTION 15: FOOTER WITH STATISTICS
 # ============================================================================
 st.divider()
 col1, col2, col3 = st.columns(3)
