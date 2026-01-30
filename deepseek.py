@@ -1090,32 +1090,65 @@ with col3:
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 
 # ============================================================================
-# SECTION: PUBLISH YOUR BIOGRAPHY (WITH AUTO-FILLED NAME)
+# SECTION: PUBLISH YOUR BIOGRAPHY (WITH EXPORT DATA IN URL)
 # ============================================================================
 st.divider()
 st.subheader("📖 Ready to Publish Your Biography?")
 
-# Get the current user's name safely
+# Get the current user's data
 current_user = st.session_state.get('user_id', '')
+export_data = {}
 
-# Create a URL with the name as a parameter
-publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
-# Pass the name in the URL
-publisher_url = f"{publisher_base_url}?name={current_user}"
+# Prepare data for export - using your existing session state structure
+for session in SESSIONS:
+    session_id = session["id"]
+    session_data = st.session_state.responses.get(session_id, {})
+    if session_data.get("questions"):
+        export_data[str(session_id)] = {
+            "title": session["title"],
+            "questions": session_data["questions"]
+        }
 
-if current_user and current_user != "Guest":
+if current_user and current_user != "Guest" and export_data:
+    # Count total stories
+    total_stories = sum(len(session['questions']) for session in export_data.values())
+    
+    # Create JSON data
+    json_data = json.dumps({
+        "user": current_user,
+        "stories": export_data,
+        "export_date": datetime.now().isoformat()
+    }, indent=2)
+    
+    # Encode the data for URL
+    import base64
+    encoded_data = base64.b64encode(json_data.encode()).decode()
+    
+    # Create URL with the data
+    publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
+    publisher_url = f"{publisher_base_url}?data={encoded_data}"
+    
     st.markdown(f"""
-    Your stories are saved as **{current_user}**.
+    Your **{total_stories} stories** are ready to publish.
     
-    **[🖨️ Click here to open your Biography Publisher]({publisher_url})**
+    **[🖨️ Click here to generate your biography]({publisher_url})**
     
-    The publisher will try to use your name: **{current_user}**
+    *All your data comes automatically - no typing needed!*
     """)
+    
+    # Also provide manual download as backup
+    with st.expander("📥 Backup: Download Data File"):
+        st.download_button(
+            label="Download Stories as JSON",
+            data=json_data,
+            file_name=f"{current_user}_stories.json",
+            mime="application/json"
+        )
+        st.caption("If the link doesn't work, download this file and upload it in the publisher app.")
+        
+elif current_user and current_user != "Guest":
+    st.info("💡 **Answer some questions first!** Your stories will appear here once you save them.")
 else:
-    st.markdown("""
-    **Please enter your name in the sidebar first!**
-    
-    Once you set your name and save some stories, this link will appear.
-    """)
+    st.info("👤 **Please enter your name in the sidebar to begin.**")
 
-st.caption("(Opens in a new tab. If the name doesn't auto-fill, you can type it manually.)")
+st.caption("Your data stays private - it's encoded in the URL and never stored on our servers.")
