@@ -1211,3 +1211,4 @@ with col3:
     total_all_questions = sum(len(ch["questions"]) for ch in CHAPTERS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
 
+
