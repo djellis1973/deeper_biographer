@@ -916,10 +916,10 @@ with input_container:
         with st.chat_message("assistant", avatar="👔"):
             with st.spinner("Reflecting on your story..."):
                 try:
-                    # First, analyze the user's response for critique
+                    # First, analyze the person's response for critique
                     critique_prompt = f"""As a professional ghostwriter, analyze this response to the topic: "{current_question_text}"
 
-USER'S RESPONSE:
+PERSON'S STORY:
 {user_input}
 
 Provide a brief professional assessment (3-4 sentences max) focusing on:
@@ -927,12 +927,12 @@ Provide a brief professional assessment (3-4 sentences max) focusing on:
 2. What could be deepened or expanded
 3. One specific suggestion for richer detail
 
-Keep it concise, constructive, and professional. Focus on storytelling craft, not praise."""
+Keep it concise, constructive, and professional. Focus on storytelling craft, not praise. Refer to the person as "the storyteller", "they", or "their story" - never use clinical terms like "user"."""
 
                     critique_response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "You're a seasoned biographer with 30 years experience. You provide sharp, constructive feedback that helps writers find their most compelling stories."},
+                            {"role": "system", "content": "You're a seasoned biographer with 30 years experience. You provide sharp, constructive feedback that helps writers find their most compelling stories. Always refer to people as 'the storyteller', 'they', or use their name if provided - never use clinical terms like 'user' or 'the user'."},
                             {"role": "user", "content": critique_prompt}
                         ],
                         temperature=0.7,
@@ -1088,4 +1088,5 @@ with col3:
     total_topics_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_topics = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
+
 
