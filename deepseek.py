@@ -1120,3 +1120,26 @@ print(f"DEBUG: David Ellis has {count} stories in database")
 conn.close()
 
 
+# ============================================================================
+# SECTION: PUBLISH YOUR BIOGRAPHY (WITH AUTO-FILLED NAME)
+# ============================================================================
+st.divider()
+st.subheader("📖 Ready to Publish Your Biography?")
+
+# Get the current user's name safely
+current_user = st.session_state.get('user_id', 'Guest')
+
+# Create a URL with the name as a parameter
+publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
+# Pass the name in the URL - no complex encoding, just simple & safe
+publisher_url = f"{publisher_base_url}?name={current_user}"
+
+st.markdown(f"""
+Your stories are saved as **{current_user}**.
+
+**[🖨️ Click here to open your Biography Publisher]({publisher_url})**
+
+The publisher will try to use your name: **{current_user}**
+""")
+
+st.caption("(Opens in a new tab. If the name doesn't auto-fill, you can type it manually.)")
