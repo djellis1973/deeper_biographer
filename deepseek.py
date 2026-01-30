@@ -166,7 +166,7 @@ SESSIONS = [
     {
         "id": 1,
         "title": "Childhood",
-        "guidance": "What is your earliest memory?\n\nWelcome to Session 1: Childhood—this is where we lay the foundation of your story. Professional biographies thrive on specific, sensory-rich memories. I'm looking for the kind of details that transport readers: not just what happened, but how it felt, smelled, sounded. The 'insignificant' moments often reveal the most. Take your time—we're mining for gold here.",
+        "guidance": "Welcome to Session 1: Childhood—this is where we lay the foundation of your story. Professional biographies thrive on specific, sensory-rich memories. I'm looking for the kind of details that transport readers: not just what happened, but how it felt, smelled, sounded. The 'insignificant' moments often reveal the most. Take your time—we're mining for gold here.",
         "questions": [
             "What is your earliest memory?",
             "Can you describe your family home growing up?",
@@ -209,7 +209,6 @@ SESSIONS = [
         "word_target": 600
     }
 ]
-
 # ============================================================================
 # SECTION 4: DATABASE FUNCTIONS
 # ============================================================================
@@ -744,7 +743,21 @@ with col3:
             st.session_state.editing = None
             st.rerun()
 
-# WORD COUNT DISPLAY WITH EDIT BUTTON INSIDE THE BOX
+# Show current question (FIRST - below navigation)
+st.markdown(f"""
+<div class="question-box">
+    {current_question_text}
+</div>
+""", unsafe_allow_html=True)
+
+# Show session guidance (SECOND - below question)
+st.markdown(f"""
+<div class="chapter-guidance">
+    {current_session.get('guidance', '')}
+</div>
+""", unsafe_allow_html=True)
+
+# WORD COUNT DISPLAY WITH EDIT BUTTON (THIRD - below guidance)
 current_word_count = calculate_author_word_count(current_session_id)
 target_words = st.session_state.responses[current_session_id].get("word_target", 500)
 color, emoji, progress_percent = get_traffic_light(current_session_id)
@@ -760,11 +773,8 @@ st.markdown(f"""
         <div style="flex-grow: 1;">
             <h4 style="margin: 0; display: flex; align-items: center;">
                 <span class="traffic-light" style="background-color: {color};"></span>
-                Word Progress: {current_word_count} / {target_words}
+                🔴 {progress_percent:.0f}% complete • {status_text}
             </h4>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
-                {emoji} {progress_percent:.0f}% complete • {status_text}
-            </p>
         </div>
     </div>
     <div style="margin-top: 1rem;">
@@ -823,7 +833,7 @@ if total_questions > 0:
     st.caption(f"📝 Questions answered: {questions_answered}/{total_questions} ({question_progress*100:.0f}%)")
 
 # ============================================================================
-# SECTION 12: CONVERSATION DISPLAY (NOW ABOVE INPUT AREAS)
+# SECTION 12: CONVERSATION DISPLAY (NOW BELOW PROGRESS BAR)
 # ============================================================================
 current_session_id = current_session["id"]
 current_question_text = current_session["questions"][st.session_state.current_question]
@@ -896,20 +906,6 @@ else:
                             st.session_state.editing = (current_session_id, current_question_text, i)
                             st.session_state.edit_text = message["content"]
                             st.rerun()
-
-# Show current question (below conversation)
-st.markdown(f"""
-<div class="question-box">
-    {current_question_text}
-</div>
-""", unsafe_allow_html=True)
-
-# Show session guidance
-st.markdown(f"""
-<div class="chapter-guidance">
-    {current_session.get('guidance', '')}
-</div>
-""", unsafe_allow_html=True)
 
 # ============================================================================
 # SECTION 13: CHAT INPUT WITH AUTO-SUBMIT (NOW AT BOTTOM)
@@ -1009,4 +1005,5 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
+
 
