@@ -931,7 +931,3 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_questions = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
-
-
-
-
