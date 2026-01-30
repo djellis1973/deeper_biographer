@@ -52,7 +52,7 @@ st.markdown(f"""
         padding: 1.5rem;
         border-radius: 10px;
         border-left: 5px solid #4a5568;
-        margin-bottom: 1.5rem;
+        margin-bottom: 0.5rem;
         font-size: 1.2rem;
         font-weight: 500;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -136,22 +136,6 @@ st.markdown(f"""
         border: 2px solid #4caf50;
     }}
     
-    .audio-preview {{
-        background-color: #f5f5f5;
-        padding: 1rem;
-        border-radius: 8px;
-        margin-top: 1rem;
-        border-left: 4px solid #2196f3;
-    }}
-    
-    .transcription-box {{
-        background-color: #e8f4fc;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        border-left: 4px solid #2196f3;
-    }}
-    
     .speech-confirmation {{
         background-color: #e8f5e9;
         padding: 1rem;
@@ -166,6 +150,29 @@ st.markdown(f"""
         border-radius: 8px;
         margin: 0.5rem 0;
         border: 1px solid #dee2e6;
+    }}
+    
+    .danger-button {{
+        background-color: #e74c3c !important;
+        color: white !important;
+        border-color: #c0392b !important;
+    }}
+    
+    .danger-button:hover {{
+        background-color: #c0392b !important;
+    }}
+    
+    .warning-box {{
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 6px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }}
+    
+    /* Hide the second change target button */
+    .hidden-button {{
+        display: none !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -267,7 +274,8 @@ if "responses" not in st.session_state:
     st.session_state.show_transcription = False
     st.session_state.auto_submit_text = None
     st.session_state.spellcheck_enabled = True
-    st.session_state.editing_word_target = False  # NEW: Track word target editing
+    st.session_state.editing_word_target = False
+    st.session_state.confirming_clear = None  # 'chapter' or 'all' or None
     
     # Initialize for each chapter
     for chapter in CHAPTERS:
@@ -382,7 +390,6 @@ def calculate_chapter_word_count(chapter_id):
     return total_words
 
 def get_traffic_light(chapter_id):
-    # ALWAYS get target from session state, not hardcoded
     current_count = calculate_chapter_word_count(chapter_id)
     target = st.session_state.responses[chapter_id].get("word_target", 500)
     
@@ -412,12 +419,13 @@ def transcribe_audio(audio_file):
             tmp.write(audio_bytes)
             tmp_path = tmp.name
         
-        # Transcribe using Whisper
+        # Use GPT-4o-transcribe for better accuracy
         with open(tmp_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
-                model="whisper-1",
+                model="whisper-1",  # You can try "gpt-4o-transcribe" for better accuracy if available
                 file=audio_file,
-                language="en"
+                language="en",
+                prompt="This is a personal life story interview. Transcribe exactly what the person says."
             )
         
         # Clean up
@@ -543,6 +551,7 @@ with st.sidebar:
         st.session_state.show_transcription = False
         st.session_state.auto_submit_text = None
         st.session_state.editing_word_target = False
+        st.session_state.confirming_clear = None
         
         for chapter in CHAPTERS:
             chapter_id = chapter["id"]
@@ -703,41 +712,84 @@ with st.sidebar:
     st.divider()
     
     # ============================================================================
-    # SECTION 10D: SIDEBAR - MANAGEMENT CONTROLS
+    # SECTION 10D: SIDEBAR - DANGEROUS ACTIONS WITH CONFIRMATION
     # ============================================================================
-    st.subheader("⚙️ Management")
+    st.subheader("⚠️ Dangerous Actions")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Clear Chapter", type="secondary"):
-            current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
-            try:
-                conn = sqlite3.connect('life_story.db')
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM responses WHERE user_id = ? AND chapter_id = ?", 
-                              (st.session_state.user_id, current_chapter_id))
-                conn.commit()
-                conn.close()
-                st.session_state.responses[current_chapter_id]["questions"] = {}
+    if st.session_state.confirming_clear == "chapter":
+        st.markdown('<div class="warning-box">', unsafe_allow_html=True)
+        st.warning("**WARNING: This will permanently delete ALL answers in the current chapter!**")
+        st.write("Type 'DELETE CHAPTER' to confirm:")
+        
+        confirm_text = st.text_input("Confirmation:", key="confirm_chapter_delete", label_visibility="collapsed")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Confirm Delete", type="primary", use_container_width=True, disabled=confirm_text != "DELETE CHAPTER"):
+                if confirm_text == "DELETE CHAPTER":
+                    current_chapter_id = CHAPTERS[st.session_state.current_chapter]["id"]
+                    try:
+                        conn = sqlite3.connect('life_story.db')
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM responses WHERE user_id = ? AND chapter_id = ?", 
+                                      (st.session_state.user_id, current_chapter_id))
+                        conn.commit()
+                        conn.close()
+                        st.session_state.responses[current_chapter_id]["questions"] = {}
+                        st.session_state.confirming_clear = None
+                        st.success("Chapter cleared!")
+                        st.rerun()
+                    except:
+                        pass
+        with col2:
+            if st.button("❌ Cancel", type="secondary", use_container_width=True):
+                st.session_state.confirming_clear = None
                 st.rerun()
-            except:
-                pass
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    with col2:
-        if st.button("Clear All", type="secondary"):
-            try:
-                conn = sqlite3.connect('life_story.db')
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM responses WHERE user_id = ?", 
-                              (st.session_state.user_id,))
-                conn.commit()
-                conn.close()
-                for chapter in CHAPTERS:
-                    chapter_id = chapter["id"]
-                    st.session_state.responses[chapter_id]["questions"] = {}
+    elif st.session_state.confirming_clear == "all":
+        st.markdown('<div class="warning-box">', unsafe_allow_html=True)
+        st.warning("**WARNING: This will permanently delete ALL answers in ALL chapters!**")
+        st.write("Type 'DELETE ALL' to confirm:")
+        
+        confirm_text = st.text_input("Confirmation:", key="confirm_all_delete", label_visibility="collapsed")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Confirm Delete All", type="primary", use_container_width=True, disabled=confirm_text != "DELETE ALL"):
+                if confirm_text == "DELETE ALL":
+                    try:
+                        conn = sqlite3.connect('life_story.db')
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM responses WHERE user_id = ?", 
+                                      (st.session_state.user_id,))
+                        conn.commit()
+                        conn.close()
+                        for chapter in CHAPTERS:
+                            chapter_id = chapter["id"]
+                            st.session_state.responses[chapter_id]["questions"] = {}
+                        st.session_state.confirming_clear = None
+                        st.success("All data cleared!")
+                        st.rerun()
+                    except:
+                        pass
+        with col2:
+            if st.button("❌ Cancel", type="secondary", use_container_width=True):
+                st.session_state.confirming_clear = None
                 st.rerun()
-            except:
-                pass
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Clear Chapter", type="secondary", use_container_width=True):
+                st.session_state.confirming_clear = "chapter"
+                st.rerun()
+        
+        with col2:
+            if st.button("🔥 Clear All", type="secondary", use_container_width=True):
+                st.session_state.confirming_clear = "all"
+                st.rerun()
 
 # ============================================================================
 # SECTION 11: MAIN CONTENT - CHAPTER HEADER AND WORD COUNT (WITH EDIT IN BOX)
@@ -779,7 +831,7 @@ color, emoji, progress_percent = get_traffic_light(current_chapter_id)
 remaining_words = max(0, target_words - current_word_count)
 status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
 
-# Create the word count box with edit button INSIDE
+# Create the word count box with functional edit button INSIDE
 st.markdown(f"""
 <div class="word-count-box">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -792,17 +844,6 @@ st.markdown(f"""
                 {emoji} {progress_percent:.0f}% complete • {status_text}
             </p>
         </div>
-        <div>
-            <button onclick="document.getElementById('edit-word-target').click()" style="
-                background: none;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 0.8rem;
-                cursor: pointer;
-                color: #666;
-            ">Change Target</button>
-        </div>
     </div>
     <div style="margin-top: 1rem;">
         <div style="height: 8px; background-color: #e0e0e0; border-radius: 4px; overflow: hidden;">
@@ -812,9 +853,12 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Hidden button to trigger edit mode
-if st.button("Change Target", key="edit-word-target", type="secondary"):
-    st.session_state.editing_word_target = True
+# Edit button that appears below the progress bar
+col_edit1, col_edit2, col_edit3 = st.columns([1, 2, 1])
+with col_edit2:
+    if st.button("✏️ Change Word Target", key="edit_word_target_button", use_container_width=True):
+        st.session_state.editing_word_target = not st.session_state.editing_word_target
+        st.rerun()
 
 # Show edit interface when triggered (appears below the box)
 if st.session_state.editing_word_target:
@@ -832,7 +876,7 @@ if st.session_state.editing_word_target:
     
     col_save, col_cancel = st.columns(2)
     with col_save:
-        if st.button("💾 Save", key="save_word_target", type="primary"):
+        if st.button("💾 Save", key="save_word_target", type="primary", use_container_width=True):
             # Update session state
             st.session_state.responses[current_chapter_id]["word_target"] = new_target
             # Update database
@@ -840,11 +884,15 @@ if st.session_state.editing_word_target:
             st.session_state.editing_word_target = False
             st.rerun()
     with col_cancel:
-        if st.button("❌ Cancel", key="cancel_word_target"):
+        if st.button("❌ Cancel", key="cancel_word_target", use_container_width=True):
             st.session_state.editing_word_target = False
             st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
+
+# Hidden button (actually removed)
+# if st.button("Change Target", key="edit-word-target", type="secondary", help="Edit word target"):
+#     st.session_state.editing_word_target = True
 
 # Questions progress
 chapter_data = st.session_state.responses.get(current_chapter_id, {})
@@ -856,116 +904,8 @@ if total_questions > 0:
     st.progress(min(question_progress, 1.0))
     st.caption(f"📝 Questions answered: {questions_answered}/{total_questions} ({question_progress*100:.0f}%)")
 
-# Show chapter guidance
-st.markdown(f"""
-<div class="chapter-guidance">
-    {current_chapter.get('guidance', '')}
-</div>
-""", unsafe_allow_html=True)
-
-# Show current question
-st.markdown(f"""
-<div class="question-box">
-    {current_question_text}
-</div>
-""", unsafe_allow_html=True)
-
 # ============================================================================
-# SECTION 12: SIMPLE SPEECH-TO-TEXT WITH CONFIRMATION
-# ============================================================================
-if st.session_state.show_speech:
-    st.markdown("### 🎤 Speak Your Answer")
-    st.markdown("""
-    <div class="audio-recording">
-        <strong>Simple Speech-to-Text:</strong>
-        <ol style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
-            <li><strong>Click the microphone below</strong> to start recording</li>
-            <li><strong>Speak your answer</strong> clearly into your microphone</li>
-            <li><strong>Click the red stop button on the left</strong> when finished</li>
-            <li><strong>Review your transcription</strong> below and confirm to add it</li>
-        </ol>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Streamlit's built-in audio input
-    audio_bytes = st.audio_input(
-        "🎤 Click to record, then click red stop button when done",
-        key=f"audio_input_{current_chapter_id}_{st.session_state.current_question}"
-    )
-    
-    # Auto-transcribe when audio is recorded
-    if audio_bytes and not st.session_state.audio_transcribed:
-        with st.spinner("🎤 Transcribing your speech..."):
-            transcribed_text = transcribe_audio(audio_bytes)
-            if transcribed_text:
-                # Auto-correct if spell check is enabled
-                if st.session_state.spellcheck_enabled:
-                    transcribed_text = auto_correct_text(transcribed_text)
-                
-                # Store for confirmation
-                st.session_state.pending_transcription = transcribed_text
-                st.session_state.audio_transcribed = True
-                st.rerun()
-    
-    # Show transcription for confirmation
-    if st.session_state.audio_transcribed and st.session_state.pending_transcription:
-        st.markdown('<div class="speech-confirmation">', unsafe_allow_html=True)
-        st.write("### 📝 Your Transcribed Answer")
-        st.write(st.session_state.pending_transcription)
-        
-        word_count = len(re.findall(r'\w+', st.session_state.pending_transcription))
-        st.caption(f"📝 {word_count} words")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("✅ Yes, Use This Answer", type="primary", use_container_width=True):
-                st.session_state.auto_submit_text = st.session_state.pending_transcription
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
-                st.rerun()
-        with col2:
-            if st.button("✏️ Edit First", type="secondary", use_container_width=True):
-                st.session_state.show_transcription = True
-                st.rerun()
-        with col3:
-            if st.button("🗑️ Discard", type="secondary", use_container_width=True):
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
-                st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Show edit interface if requested
-    if st.session_state.show_transcription and st.session_state.pending_transcription:
-        st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
-        st.write("### ✏️ Edit Your Answer")
-        
-        edited_text = st.text_area(
-            "Edit your transcribed answer:",
-            value=st.session_state.pending_transcription,
-            height=150,
-            key="edit_transcription"
-        )
-        
-        col_save, col_cancel = st.columns(2)
-        with col_save:
-            if st.button("✅ Use Edited Version", type="primary"):
-                st.session_state.auto_submit_text = edited_text
-                st.session_state.pending_transcription = None
-                st.session_state.audio_transcribed = False
-                st.session_state.show_transcription = False
-                st.rerun()
-        with col_cancel:
-            if st.button("❌ Cancel Edit", type="secondary"):
-                st.session_state.show_transcription = False
-                st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown("---")
-
-# ============================================================================
-# SECTION 13: CONVERSATION DISPLAY
+# SECTION 12: CONVERSATION DISPLAY (NOW ABOVE INPUT AREAS)
 # ============================================================================
 current_chapter_id = current_chapter["id"]
 current_question_text = current_chapter["questions"][st.session_state.current_question]
@@ -1039,8 +979,121 @@ else:
                             st.session_state.edit_text = message["content"]
                             st.rerun()
 
+# Show current question (below conversation)
+st.markdown(f"""
+<div class="question-box">
+    {current_question_text}
+</div>
+""", unsafe_allow_html=True)
+
+# Show chapter guidance
+st.markdown(f"""
+<div class="chapter-guidance">
+    {current_chapter.get('guidance', '')}
+</div>
+""", unsafe_allow_html=True)
+
 # ============================================================================
-# SECTION 14: CHAT INPUT WITH AUTO-SUBMIT
+# SECTION 13: SIMPLE SPEECH-TO-TEXT WITH CONFIRMATION (FIXED DISCARD BUTTON)
+# ============================================================================
+if st.session_state.show_speech:
+    st.markdown("### 🎤 Speak Your Answer")
+    st.markdown("""
+    <div class="audio-recording">
+        <strong>Simple Speech-to-Text:</strong>
+        <ol style="margin: 0.5rem 0 0 1rem; padding-left: 1rem;">
+            <li><strong>Click the microphone below</strong> to start recording</li>
+            <li><strong>Speak your answer</strong> clearly into your microphone</li>
+            <li><strong>Click the red stop button on the left</strong> when finished</li>
+            <li><strong>Review your transcription</strong> below and confirm to add it</li>
+        </ol>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #666;">
+            <em>Note: Follow-up questions will also allow speech input</em>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Streamlit's built-in audio input
+    audio_bytes = st.audio_input(
+        "🎤 Click to record, then click red stop button when done",
+        key=f"audio_input_{current_chapter_id}_{st.session_state.current_question}"
+    )
+    
+    # Auto-transcribe when audio is recorded
+    if audio_bytes and not st.session_state.audio_transcribed:
+        with st.spinner("🎤 Transcribing your speech..."):
+            transcribed_text = transcribe_audio(audio_bytes)
+            if transcribed_text:
+                # Auto-correct if spell check is enabled
+                if st.session_state.spellcheck_enabled:
+                    transcribed_text = auto_correct_text(transcribed_text)
+                
+                # Store for confirmation
+                st.session_state.pending_transcription = transcribed_text
+                st.session_state.audio_transcribed = True
+                st.rerun()
+    
+    # Show transcription for confirmation
+    if st.session_state.audio_transcribed and st.session_state.pending_transcription:
+        st.markdown('<div class="speech-confirmation">', unsafe_allow_html=True)
+        st.write("### 📝 Your Transcribed Answer")
+        st.write(st.session_state.pending_transcription)
+        
+        word_count = len(re.findall(r'\w+', st.session_state.pending_transcription))
+        st.caption(f"📝 {word_count} words")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("✅ Yes, Use This Answer", type="primary", use_container_width=True, key="use_transcribed_answer"):
+                st.session_state.auto_submit_text = st.session_state.pending_transcription
+                st.session_state.pending_transcription = None
+                st.session_state.audio_transcribed = False
+                st.rerun()
+        with col2:
+            if st.button("✏️ Edit First", type="secondary", use_container_width=True, key="edit_transcribed_answer"):
+                st.session_state.show_transcription = True
+                st.rerun()
+        with col3:
+            if st.button("🗑️ Discard", type="secondary", use_container_width=True, key="discard_transcription"):
+                # FIXED: Properly clear the transcription state
+                st.session_state.pending_transcription = None
+                st.session_state.audio_transcribed = False
+                st.session_state.show_transcription = False
+                st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Show edit interface if requested
+    if st.session_state.show_transcription and st.session_state.pending_transcription:
+        st.markdown('<div class="edit-target-box">', unsafe_allow_html=True)
+        st.write("### ✏️ Edit Your Answer")
+        
+        edited_text = st.text_area(
+            "Edit your transcribed answer:",
+            value=st.session_state.pending_transcription,
+            height=150,
+            key="edit_transcription"
+        )
+        
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            if st.button("✅ Use Edited Version", type="primary", key="save_edited_transcription"):
+                st.session_state.auto_submit_text = edited_text
+                st.session_state.pending_transcription = None
+                st.session_state.audio_transcribed = False
+                st.session_state.show_transcription = False
+                st.rerun()
+        with col_cancel:
+            if st.button("❌ Cancel Edit", type="secondary", key="cancel_edit_transcription"):
+                st.session_state.show_transcription = False
+                st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+
+# ============================================================================
+# SECTION 14: CHAT INPUT WITH AUTO-SUBMIT (NOW AT BOTTOM)
 # ============================================================================
 if st.session_state.editing is None and not st.session_state.editing_word_target:
     user_input = None
@@ -1146,6 +1199,3 @@ with col3:
     total_questions_answered = sum(len(st.session_state.responses[ch["id"]].get("questions", {})) for ch in CHAPTERS)
     total_all_questions = sum(len(ch["questions"]) for ch in CHAPTERS)
     st.metric("Questions Answered", f"{total_questions_answered}/{total_all_questions}")
-
-
-
