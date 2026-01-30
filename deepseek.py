@@ -814,14 +814,25 @@ if not conversation:
     # Custom avatar for ghostwriter
     with st.chat_message("assistant", avatar="👔"):
         if st.session_state.ghostwriter_mode:
-            welcome_msg = f"""Let's explore this topic in detail: **{current_question_text}**
-
-Take your time with this—good biographies are built from thoughtful reflection rather than quick answers."""
+            welcome_msg = f"""<div style='font-size: 1.4rem; margin-bottom: 1rem;'>
+Let's explore this topic in detail:
+</div>
+<div style='font-size: 1.8rem; font-weight: bold; color: #2c3e50; line-height: 1.3;'>
+{current_question_text}
+</div>
+<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #555;'>
+Take your time with this—good biographies are built from thoughtful reflection rather than quick answers.
+</div>"""
         else:
-            welcome_msg = f"I'd love to hear your thoughts about this topic: **{current_question_text}**"
+            welcome_msg = f"""<div style='font-size: 1.4rem; margin-bottom: 1rem;'>
+I'd love to hear your thoughts about this topic:
+</div>
+<div style='font-size: 1.8rem; font-weight: bold; color: #2c3e50; line-height: 1.3;'>
+{current_question_text}
+</div>"""
         
-        st.markdown(welcome_msg)
-        conversation.append({"role": "assistant", "content": welcome_msg})
+        st.markdown(welcome_msg, unsafe_allow_html=True)
+        conversation.append({"role": "assistant", "content": f"Let's explore this topic in detail: {current_question_text}\n\nTake your time with this—good biographies are built from thoughtful reflection rather than quick answers."})
         st.session_state.session_conversations[current_session_id][current_question_text] = conversation
 else:
     for i, message in enumerate(conversation):
@@ -1005,7 +1016,6 @@ Keep it concise, constructive, and professional. Focus on storytelling craft, no
         st.session_state.session_conversations[current_session_id][current_question_text] = conversation
         
         st.rerun()
-
 # ============================================================================
 # SECTION 13: WORD PROGRESS INDICATOR (BELOW CHAT INPUT)
 # ============================================================================
@@ -1078,3 +1088,4 @@ with col3:
     total_topics_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
     total_all_topics = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
+
