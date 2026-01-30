@@ -1110,5 +1110,13 @@ st.markdown(f"""
 """)
 
 st.caption("Your interview progress is saved. Return here anytime to continue.")
+# Add this anywhere in deepseek.py after saving (like after save_response function)
+import sqlite3
+conn = sqlite3.connect('life_story.db')
+cursor = conn.cursor()
+cursor.execute("SELECT COUNT(*) FROM responses WHERE user_id = ?", ("David Ellis",))
+count = cursor.fetchone()[0]
+print(f"DEBUG: David Ellis has {count} stories in database")
+conn.close()
 
 
