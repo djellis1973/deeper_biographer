@@ -1,163 +1,168 @@
-# biography_publisher.py - STANDALONE PUBLISHER
+# biography_publisher.py - REAL PUBLISHER (NO SAMPLE DATA)
 import streamlit as st
+import sqlite3
 from datetime import datetime
 
-# ============================================================================
-# 1. PAGE SETUP
-# ============================================================================
+# Page setup
 st.set_page_config(page_title="Biography Publisher", layout="wide")
-st.title("📖 Biography Publisher")
-st.markdown("***Test this standalone tool first. It uses example stories.***")
+st.title("📖 Legacy Biography Publisher")
 
 # ============================================================================
-# 2. EXAMPLE STORIES (MOCK DATA - REPLACE LATER)
+# 1. FUNCTION TO GET REAL DATA FROM YOUR DATABASE
 # ============================================================================
-EXAMPLE_STORIES = [
-    {
-        "session_title": "Childhood",
-        "question": "What is your earliest memory?",
-        "answer": "I remember sitting on my grandfather's lap while he read me stories. The book had red covers and smelled like old paper and his pipe tobacco."
-    },
-    {
-        "session_title": "Childhood", 
-        "question": "Can you describe your family home growing up?",
-        "answer": "We lived in a small brick house with a big oak tree in the backyard. My room faced east, so I woke up with sunlight streaming through the white curtains every morning."
-    },
-    {
-        "session_title": "Family & Relationships",
-        "question": "How would you describe your relationship with your parents?",
-        "answer": "My mother was a primary school teacher – incredibly patient and organized. My father worked in construction – he had strong, rough hands but the gentlest voice when he read to us at night."
-    }
-]
+def get_real_user_stories(user_name):
+    """Get ACTUAL stories from your life_story.db database"""
+    try:
+        # Connect to your shared database
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        
+        # Query to get all responses for this user
+        cursor.execute("""
+            SELECT session_id, question, answer, timestamp 
+            FROM responses 
+            WHERE user_id = ? 
+            AND answer IS NOT NULL 
+            AND answer != ''
+            ORDER BY session_id, timestamp
+        """, (user_name,))
+        
+        stories = cursor.fetchall()
+        conn.close()
+        
+        # Format the data
+        formatted_stories = []
+        for session_id, question, answer, timestamp in stories:
+            formatted_stories.append({
+                "session": f"Chapter {session_id}",
+                "question": question,
+                "answer": answer,
+                "date": timestamp[:10] if timestamp else ""
+            })
+        
+        return formatted_stories
+        
+    except Exception as e:
+        st.error(f"⚠️ Database error: {str(e)}")
+        return []
 
 # ============================================================================
-# 3. CORE PUBLISHING FUNCTION
+# 2. FUNCTION TO CREATE BIOGRAPHY
 # ============================================================================
-def create_biography(stories, author_name="The Author"):
-    """
-    Takes a list of stories and an author's name.
-    Returns a beautifully formatted biography text.
-    """
-    # Build the biography text
+def create_real_biography(stories, author_name):
+    """Create biography from REAL user stories"""
+    if not stories:
+        return "No stories found to publish."
+    
     bio_text = f"# The Life Story of {author_name}\n\n"
-    bio_text += "_A personal biography, compiled from cherished memories._\n\n"
+    bio_text += f"_Compiled on {datetime.now().strftime('%B %d, %Y')}_\n\n"
     bio_text += "---\n\n"
     
-    # Group stories by session
-    sessions = {}
+    # Group by session
+    current_session = None
+    story_count = 0
     for story in stories:
-        session = story["session_title"]
-        if session not in sessions:
-            sessions[session] = []
-        sessions[session].append(story)
-    
-    # Write each session
-    for session_title, session_stories in sessions.items():
-        bio_text += f"## {session_title}\n\n"
+        story_count += 1
+        if story["session"] != current_session:
+            bio_text += f"## {story['session']}\n\n"
+            current_session = story["session"]
         
-        for story in session_stories:
-            bio_text += f"### {story['question']}\n\n"
-            # Format the answer into nice paragraphs
-            answer_paragraphs = story['answer'].split('. ')
-            for para in answer_paragraphs:
-                if para.strip():  # Skip empty strings
-                    bio_text += f"{para.strip()}.\n\n"
-        
-        bio_text += "---\n\n"
+        bio_text += f"### {story_count}. {story['question']}\n\n"
+        bio_text += f"{story['answer']}\n\n"
     
-    # Add closing
-    bio_text += "### Epilogue\n\n"
-    bio_text += "This collection of memories forms a unique portrait of a life. "
-    bio_text += "Each story is a thread in the tapestry of experience.\n\n"
-    
-    # Add generation info
-    bio_text += f"\n\n---\n"
-    bio_text += f"*Compiled on {datetime.now().strftime('%B %d, %Y')}.*\n"
-    bio_text += "*For private reflection and legacy.*"
+    bio_text += "---\n\n"
+    bio_text += f"*This personal biography contains {story_count} stories across {len(set(s['session'] for s in stories))} chapters.*\n"
+    bio_text += "*Created to preserve your unique legacy.*"
     
     return bio_text
 
 # ============================================================================
-# 4. USER INTERFACE
+# 3. MAIN APP INTERFACE
 # ============================================================================
-st.sidebar.header("🛠️ Publishing Settings")
-author_name = st.sidebar.text_input("**Author's Name for the Cover:**", value="Alex Johnson")
+st.markdown("### 🔍 Find Your Real Stories")
+st.write("**Enter your exact name** as used in the main interview app:")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Example Stories Preview")
-for i, story in enumerate(EXAMPLE_STORIES):
-    st.sidebar.caption(f"**{story['session_title']}**")
-    st.sidebar.write(f"*{story['question']}*")
+# User input
+user_name = st.text_input("**Your Name:**", key="real_name", placeholder="e.g., John Smith")
+
+# Search button
+if st.button("🔎 Search Database", type="primary"):
+    if user_name:
+        with st.spinner("Searching database..."):
+            # Get REAL stories from database
+            real_stories = get_real_user_stories(user_name)
+            
+            if real_stories:
+                st.session_state.real_stories = real_stories
+                st.session_state.real_author = user_name
+                st.success(f"✅ Found **{len(real_stories)}** real story(s) for **{user_name}**!")
+                
+                # Show quick stats
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Stories", len(real_stories))
+                with col2:
+                    sessions = len(set(s["session"] for s in real_stories))
+                    st.metric("Chapters", sessions)
+                
+                # Show preview
+                with st.expander("📋 Preview First 3 Stories", expanded=True):
+                    for i, story in enumerate(real_stories[:3]):
+                        st.markdown(f"**{story['session']}**")
+                        st.markdown(f"*{story['question']}*")
+                        st.write(story['answer'][:150] + "..." if len(story['answer']) > 150 else story['answer'])
+                        if i < 2:
+                            st.divider()
+            else:
+                st.warning(f"❌ No stories found for '{user_name}'.")
+                st.info("""
+                **Tips:**
+                1. Use the **exact name** from your main app
+                2. Check capitalization (John vs john)
+                3. Make sure you've saved stories in the main app first
+                """)
+    else:
+        st.info("Please enter your name first.")
 
 # ============================================================================
-# 5. MAIN AREA: PREVIEW & PUBLISH BUTTON
+# 4. PUBLISH REAL STORIES
 # ============================================================================
-st.subheader("📋 Story Preview")
-
-# Show the example stories in the main area
-for i, story in enumerate(EXAMPLE_STORIES):
-    with st.expander(f"**{story['session_title']}**: {story['question']}", expanded=False):
-        st.info(story['answer'])
-        st.caption(f"Example story #{i+1}")
-
-st.markdown("---")
-st.subheader("🚀 Generate Your Biography")
-
-# THE BIG PUBLISH BUTTON
-if st.button("🖨️ **PUBLISH NOW**", type="primary", use_container_width=True, help="Click to generate and download the biography"):
+if 'real_stories' in st.session_state and st.session_state.real_stories:
+    st.markdown("---")
+    st.subheader(f"🚀 Ready to Publish")
     
-    with st.spinner("🔄 **Gathering stories and formatting your biography...**"):
-        # CREATE THE BIOGRAPHY
-        final_biography_text = create_biography(EXAMPLE_STORIES, author_name)
+    if st.button("🖨️ Generate Biography", type="primary", use_container_width=True):
+        with st.spinner("Creating your biography..."):
+            biography = create_real_biography(
+                st.session_state.real_stories,
+                st.session_state.real_author
+            )
         
-        # Show success message
-        st.success("✅ **Biography created successfully!**")
+        # Download button
+        safe_name = st.session_state.real_author.replace(" ", "_")
+        file_name = f"{safe_name}_Biography.txt"
         
-        # Show a small preview
-        with st.expander("📄 **Quick Preview (First 500 characters)**", expanded=True):
-            st.text(final_biography_text[:500] + "...")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.download_button(
+                label="📥 Download Biography",
+                data=biography,
+                file_name=file_name,
+                mime="text/plain",
+                type="primary",
+                use_container_width=True
+            )
+        with col2:
+            st.button("🔄 Search Again", on_click=lambda: st.session_state.clear())
         
-        st.balloons()  # Little celebration!
-        
-        # THE DOWNLOAD BUTTON
-        st.markdown("---")
-        st.subheader("📥 Download Your Biography")
-        
-        # Create a clean filename
-        clean_author_name = author_name.replace(" ", "_")
-        filename = f"{clean_author_name}_Life_Story.txt"
-        
-        st.download_button(
-            label=f"**DOWNLOAD '{filename}'**",
-            data=final_biography_text,
-            file_name=filename,
-            mime="text/plain",
-            type="primary",
-            use_container_width=True
-        )
-        
-        st.caption("The file is a standard .txt file that can be opened in any text editor, word processor, or ebook reader.")
+        st.balloons()
+        st.success("Your **real biography** is ready!")
 
 # ============================================================================
-# 6. "WHAT'S NEXT" SECTION
+# 5. FOOTER
 # ============================================================================
 st.markdown("---")
-st.subheader("🔗 What's Next?")
-st.markdown("""
-Once this publisher works perfectly:
-
-1.  **Test it** → Make sure the download button gives you a nice .txt file.
-2.  **Deploy it** → Push this file to GitHub. Community Cloud will show it as a separate app.
-3.  **Connect it** → Later, we'll add these functions to your main `deepseek.py` with **3 lines of code**.
-
-**Your main interview app remains 100% untouched and working.**
-""")
-
-# Show the connection code for the future
-with st.expander("🔮 **Future Connection Code (For Later)**"):
-    st.code("""
-# === IN YOUR MAIN deepseek.py (LATER) ===
-# Just add this where you want the publish button:
+st.caption("📊 **Connected to real database** | Reads actual interview responses")
 
 # 1. Get the user's REAL stories from your app's memory
 real_user_stories = []  # You'll fill this with actual data
