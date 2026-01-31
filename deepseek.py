@@ -1160,7 +1160,7 @@ st.divider()
 st.subheader("🔐 Store Your Biography Securely")
 
 # Replace this with your actual vault app URL
-VAULT_APP_URL = "https://digital-legacy-vault.streamlit.app"
+VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app/"
 
 st.markdown(f"""
 **Your biography is complete!**
@@ -1259,6 +1259,7 @@ if export_data and total_stories > 0:
             st.write(f"- {export_data[session_id].get('title', f'Session {session_id}')}")
 
 st.info("💡 **Tip:** Keep your vault password safe! Without it, your encrypted files cannot be recovered.")
+
 
 
 
