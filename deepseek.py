@@ -1182,7 +1182,7 @@ st.divider()
 st.subheader("🔐 One-Click Vault Upload")
 
 # Your actual vault URL - CHANGE THIS TO YOUR REAL VAULT URL!
-VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app"  # ⬅️ YOUR REAL URL
+VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app/"  # ⬅️ YOUR REAL URL
 
 # Get user name for filename
 user_name = st.session_state.get('user_id', 'User').replace(' ', '_')
@@ -1259,6 +1259,7 @@ if export_data and total_stories > 0:
             st.write(f"- {export_data[session_id].get('title', f'Session {session_id}')}")
 
 st.info("💡 **Tip:** Keep your vault password safe! Without it, your encrypted files cannot be recovered.")
+
 
 
 
