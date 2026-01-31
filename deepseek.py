@@ -1156,7 +1156,7 @@ if current_user and current_user != "Guest" and export_data:
         2. Download the formatted PDF
         3. Save it to your secure vault
         
-        **[💾 Go to Secure Vault](https://digital-legacy-vault.streamlit.app)**
+        **[💾 Go to Secure Vault](https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app/)**
         
         Your vault preserves important documents forever.
         """)
@@ -1176,3 +1176,4 @@ elif current_user and current_user != "Guest":
     st.info("📝 **Answer some questions first!** Come back here after saving some stories.")
 else:
     st.info("👤 **Enter your name in the sidebar to begin**")
+
