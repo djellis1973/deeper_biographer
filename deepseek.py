@@ -19,7 +19,6 @@ LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
 st.markdown(f"""
 <style>
-    /* Fix header spacing */
     .main-header {{
         text-align: center;
         padding-top: 0.5rem;
@@ -64,20 +63,8 @@ st.markdown(f"""
         color: #2c3e50;
     }}
     
-    /* Chat styling */
     .stChatMessage {{
         margin-bottom: 0.5rem !important;
-    }}
-    
-    /* Custom avatar styling */
-    .ghostwriter-avatar {{
-        background-color: #4a5568 !important;
-        color: white !important;
-    }}
-    
-    .storyteller-avatar {{
-        background-color: #2c5282 !important;
-        color: white !important;
     }}
     
     .user-message-container {{
@@ -92,7 +79,6 @@ st.markdown(f"""
         min-width: 0;
     }}
     
-    /* Remove extra margins */
     [data-testid="stAppViewContainer"] {{
         padding-top: 0.5rem !important;
     }}
@@ -112,16 +98,6 @@ st.markdown(f"""
         border: 1px solid #dee2e6;
     }}
     
-    .danger-button {{
-        background-color: #e74c3c !important;
-        color: white !important;
-        border-color: #c0392b !important;
-    }}
-    
-    .danger-button:hover {{
-        background-color: #c0392b !important;
-    }}
-    
     .warning-box {{
         background-color: #fff3cd;
         border: 1px solid #ffeaa7;
@@ -130,7 +106,6 @@ st.markdown(f"""
         margin: 0.5rem 0;
     }}
     
-    /* Word count progress box styling */
     .progress-container {{
         background-color: #f8f9fa;
         padding: 1.5rem;
@@ -164,12 +139,6 @@ st.markdown(f"""
         height: 100%;
         border-radius: 5px;
         transition: width 0.3s ease;
-    }}
-    
-    /* Navigation button styling */
-    .nav-button {{
-        font-size: 0.9rem;
-        padding: 0.5rem 1rem;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -226,18 +195,21 @@ SESSIONS = [
 ]
 
 # ============================================================================
-# SECTION 4: DATABASE FUNCTIONS
+# SECTION 4: DATABASE FUNCTIONS (FIXED)
 # ============================================================================
 def init_db():
+    """Initialize database tables"""
     conn = sqlite3.connect('life_story.db')
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS responses (
-            user_id TEXT,
-            session_id INTEGER,
-            question TEXT,
-            answer TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            session_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, session_id, question)
         )
     ''')
     cursor.execute('''
@@ -246,96 +218,71 @@ def init_db():
             word_target INTEGER DEFAULT 500
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            session_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            conversation TEXT NOT NULL,
+            UNIQUE(user_id, session_id, question)
+        )
+    ''')
     conn.commit()
     conn.close()
 
 init_db()
 
-# ============================================================================
-# SECTION 5: SESSION STATE INITIALIZATION
-# ============================================================================
-if "responses" not in st.session_state:
-    st.session_state.current_session = 0
-    st.session_state.current_question = 0
-    st.session_state.responses = {}
-    st.session_state.user_id = "Guest"
-    st.session_state.session_conversations = {}
-    st.session_state.editing = None
-    st.session_state.edit_text = ""
-    st.session_state.ghostwriter_mode = True
-    st.session_state.spellcheck_enabled = True
-    st.session_state.editing_word_target = False
-    st.session_state.confirming_clear = None  # 'session' or 'all' or None
+def load_user_data(user_id):
+    """Load all data for a specific user"""
+    if user_id == "Guest":
+        return {}
     
-    # Initialize for each session
-    for session in SESSIONS:
-        session_id = session["id"]
-        st.session_state.responses[session_id] = {
-            "title": session["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False,
-            "word_target": session.get("word_target", 500)
-        }
-        st.session_state.session_conversations[session_id] = {}
-    
-    # Load word targets from database
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT session_id, word_target FROM word_targets")
-        for session_id, word_target in cursor.fetchall():
-            if session_id in st.session_state.responses:
-                st.session_state.responses[session_id]["word_target"] = word_target
-        conn.close()
-    except:
-        pass
-
-# ============================================================================
-# SECTION 6: CORE APPLICATION FUNCTIONS
-# ============================================================================
-def load_user_data():
-    if st.session_state.user_id == "Guest":
-        return
+    data = {"responses": {}, "conversations": {}}
     
     try:
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
+        
+        # Load responses
         cursor.execute("""
             SELECT session_id, question, answer 
             FROM responses 
             WHERE user_id = ?
-        """, (st.session_state.user_id,))
+            ORDER BY session_id, timestamp
+        """, (user_id,))
         
         for session_id, question, answer in cursor.fetchall():
-            if session_id not in st.session_state.responses:
-                continue
-            st.session_state.responses[session_id]["questions"][question] = {
+            if session_id not in data["responses"]:
+                data["responses"][session_id] = {}
+            data["responses"][session_id][question] = {
                 "answer": answer,
                 "timestamp": datetime.now().isoformat()
             }
         
+        # Load conversations
+        cursor.execute("""
+            SELECT session_id, question, conversation 
+            FROM conversations 
+            WHERE user_id = ?
+        """, (user_id,))
+        
+        for session_id, question, conversation_json in cursor.fetchall():
+            if session_id not in data["conversations"]:
+                data["conversations"][session_id] = {}
+            try:
+                data["conversations"][session_id][question] = json.loads(conversation_json)
+            except:
+                data["conversations"][session_id][question] = []
+        
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+    
+    return data
 
-def save_response(session_id, question, answer):
-    user_id = st.session_state.user_id
-    
-    if session_id not in st.session_state.responses:
-        st.session_state.responses[session_id] = {
-            "title": SESSIONS[session_id-1]["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False,
-            "word_target": SESSIONS[session_id-1].get("word_target", 500)
-        }
-    
-    st.session_state.responses[session_id]["questions"][question] = {
-        "answer": answer,
-        "timestamp": datetime.now().isoformat()
-    }
-    
+def save_response(user_id, session_id, question, answer):
+    """Save a response to database"""
     try:
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
@@ -346,10 +293,30 @@ def save_response(session_id, question, answer):
         """, (user_id, session_id, question, answer))
         conn.commit()
         conn.close()
-    except:
-        pass
+        return True
+    except Exception as e:
+        st.error(f"Error saving response: {e}")
+        return False
+
+def save_conversation(user_id, session_id, question, conversation):
+    """Save a conversation to database"""
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO conversations 
+            (user_id, session_id, question, conversation) 
+            VALUES (?, ?, ?, ?)
+        """, (user_id, session_id, question, json.dumps(conversation)))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error saving conversation: {e}")
+        return False
 
 def save_word_target(session_id, word_target):
+    """Save word target to database"""
     try:
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
@@ -360,10 +327,60 @@ def save_word_target(session_id, word_target):
         """, (session_id, word_target))
         conn.commit()
         conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error saving word target: {e}")
+        return False
+
+def load_word_targets():
+    """Load all word targets from database"""
+    targets = {}
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT session_id, word_target FROM word_targets")
+        for session_id, word_target in cursor.fetchall():
+            targets[session_id] = word_target
+        conn.close()
     except:
         pass
+    return targets
 
+# ============================================================================
+# SECTION 5: SESSION STATE INITIALIZATION (FIXED)
+# ============================================================================
+if "initialized" not in st.session_state:
+    # Initialize all session state variables
+    st.session_state.initialized = True
+    st.session_state.user_id = "Guest"
+    st.session_state.current_session = 0
+    st.session_state.current_question = 0
+    st.session_state.responses = {}
+    st.session_state.session_conversations = {}
+    st.session_state.editing = None
+    st.session_state.edit_text = ""
+    st.session_state.ghostwriter_mode = True
+    st.session_state.spellcheck_enabled = True
+    st.session_state.editing_word_target = False
+    st.session_state.confirming_clear = None
+    
+    # Initialize empty structures for each session
+    for session in SESSIONS:
+        session_id = session["id"]
+        st.session_state.responses[session_id] = {
+            "title": session["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False,
+            "word_target": session.get("word_target", 500)
+        }
+        st.session_state.session_conversations[session_id] = {}
+
+# ============================================================================
+# SECTION 6: CORE APPLICATION FUNCTIONS
+# ============================================================================
 def calculate_author_word_count(session_id):
+    """Calculate total words for a session"""
     total_words = 0
     session_data = st.session_state.responses.get(session_id, {})
     
@@ -374,6 +391,7 @@ def calculate_author_word_count(session_id):
     return total_words
 
 def get_progress_info(session_id):
+    """Get progress information for a session"""
     current_count = calculate_author_word_count(session_id)
     target = st.session_state.responses[session_id].get("word_target", 500)
     
@@ -427,7 +445,7 @@ def auto_correct_text(text):
         )
         return response.choices[0].message.content
     except:
-        return text  # Return original if OpenAI fails
+        return text
 
 # ============================================================================
 # SECTION 8: GHOSTWRITER PROMPT FUNCTION
@@ -437,33 +455,18 @@ def get_system_prompt():
     current_question = current_session["questions"][st.session_state.current_question]
     
     if st.session_state.ghostwriter_mode:
-        return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name. You're working with someone on their life story, and you treat this with the seriousness of archival research combined with literary craft.
+        return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name.
 
 CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
 CURRENT TOPIC: "{current_question}"
 
 YOUR APPROACH:
-1. You listen like an archivist—hearing not just what's said, but what's implied
-2. You think in scenes, sensory details, and emotional truth
-3. You're not here to flatter; you're here to find the story that needs to be told
-4. You respect silence and complexity—you don't rush toward resolution
-5. You understand that memory is reconstruction, and you help reconstruct with integrity
+1. Listen like an archivist
+2. Think in scenes, sensory details, and emotional truth
+3. Find the story that needs to be told
+4. Respect silence and complexity
 
-TECHNIQUE:
-- After they share, you often pause before responding (reflected in thoughtful language)
-- You reference specific details they've mentioned, showing you're truly listening
-- You ask questions that open space rather than close it
-- You sometimes gently challenge assumptions or explore contradictions
-- You're comfortable with ambiguity and unresolved moments
-
-EXAMPLE RESPONSES:
-To "I remember my grandmother's kitchen always smelled of cinnamon":
-"That's telling—cinnamon as character. Not just a smell, but a presence. Was it the cinnamon of baking or of potpourri? And did that scent mean comfort, or duty, or something more complicated?"
-
-To "School was mostly boring until Mr. Jenkins' class":
-"Let's sit with 'mostly boring' for a moment. What did that boredom feel like in your body? And what specifically shifted in Mr. Jenkins' room—was it the material, his presence, or something in you that changed?"
-
-Tone: Literary but not pretentious. Serious but not solemn. You're doing important work, and it shows in your attention to detail."""
+Tone: Literary but not pretentious. Serious but not solemn."""
     else:
         return f"""You are a warm, professional biographer helping document a life story.
 
@@ -471,15 +474,12 @@ CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
 CURRENT TOPIC: "{current_question}"
 
 Please:
-1. Listen actively to their response
-2. Acknowledge it warmly (1-2 sentences)
-3. Ask ONE natural follow-up question if appropriate
-4. Keep the conversation flowing naturally
+1. Listen actively
+2. Acknowledge warmly
+3. Ask ONE natural follow-up question
+4. Keep conversation flowing
 
-Tone: Kind, curious, professional
-Goal: Draw out authentic, detailed memories
-
-Focus ONLY on the current topic. Don't reference previous sessions."""
+Tone: Kind, curious, professional"""
 
 # ============================================================================
 # SECTION 9: MAIN APP HEADER
@@ -494,28 +494,25 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-if st.session_state.user_id != "Guest":
-    load_user_data()
-
 # ============================================================================
-# SECTION 10: SIDEBAR - USER PROFILE AND SETTINGS
+# SECTION 10: SIDEBAR - USER PROFILE AND SETTINGS (FIXED)
 # ============================================================================
 with st.sidebar:
     st.header("👤 Your Profile")
     
-    new_user_id = st.text_input("Your Name:", value=st.session_state.user_id)
+    # User ID input with proper loading
+    new_user_id = st.text_input("Your Name:", value=st.session_state.user_id, key="user_id_input")
     
     if new_user_id != st.session_state.user_id:
-        st.session_state.user_id = new_user_id
-        st.session_state.responses = {}
-        st.session_state.session_conversations = {}
-        st.session_state.current_session = 0
-        st.session_state.current_question = 0
-        st.session_state.editing = None
-        st.session_state.edit_text = ""
-        st.session_state.editing_word_target = False
-        st.session_state.confirming_clear = None
+        # Save current data first if switching from existing user
+        if st.session_state.user_id != "Guest":
+            # Data is already saved automatically when entered
+            pass
         
+        # Switch to new user
+        st.session_state.user_id = new_user_id
+        
+        # Clear current session state
         for session in SESSIONS:
             session_id = session["id"]
             st.session_state.responses[session_id] = {
@@ -527,8 +524,40 @@ with st.sidebar:
             }
             st.session_state.session_conversations[session_id] = {}
         
-        load_user_data()
+        # Load word targets
+        word_targets = load_word_targets()
+        for session_id, target in word_targets.items():
+            if session_id in st.session_state.responses:
+                st.session_state.responses[session_id]["word_target"] = target
+        
+        # Load user data if not Guest
+        if new_user_id != "Guest":
+            user_data = load_user_data(new_user_id)
+            
+            # Load responses
+            for session_id, questions in user_data.get("responses", {}).items():
+                if int(session_id) in st.session_state.responses:
+                    st.session_state.responses[int(session_id)]["questions"] = questions
+            
+            # Load conversations
+            for session_id, conversations in user_data.get("conversations", {}).items():
+                if int(session_id) in st.session_state.session_conversations:
+                    st.session_state.session_conversations[int(session_id)] = conversations
+        
         st.rerun()
+    
+    # Show current user info
+    if st.session_state.user_id != "Guest":
+        st.success(f"✓ Signed in as: **{st.session_state.user_id}**")
+        
+        # Show stats
+        total_responses = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
+        total_words = sum(calculate_author_word_count(s["id"]) for s in SESSIONS)
+        
+        st.metric("Total Responses", total_responses)
+        st.metric("Total Words", total_words)
+    else:
+        st.warning("Enter your name to save your progress")
     
     st.divider()
     st.header("✍️ Interview Style")
@@ -568,16 +597,21 @@ with st.sidebar:
         session_id = session["id"]
         session_data = st.session_state.responses.get(session_id, {})
         
+        # Calculate responses in this session
+        responses_count = len(session_data.get("questions", {}))
+        total_questions = len(session["questions"])
+        
         # Determine session status
-        if session_data.get("completed", False):
-            status = "✅"
-        elif i == st.session_state.current_session:
+        if i == st.session_state.current_session:
             status = "▶️"
+        elif responses_count == total_questions:
+            status = "✅"
+        elif responses_count > 0:
+            status = "🟡"
         else:
             status = "●"
         
-        # Session button (just title)
-        button_text = f"{status} Session {session_id}: {session['title']}"
+        button_text = f"{status} Session {session_id}: {session['title']} ({responses_count}/{total_questions})"
         
         if st.button(button_text, 
                     key=f"select_{i}",
@@ -641,11 +675,10 @@ with st.sidebar:
     st.subheader("📤 Export Options")
     
     total_answers = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
-    st.caption(f"Total answers to export: {total_answers}")
+    st.caption(f"Total answers: {total_answers}")
     
     if st.button("📥 Export Current Progress", type="primary"):
         if total_answers > 0:
-            # Simple export implementation
             export_data = {"sessions": {}}
             for session in SESSIONS:
                 session_id = session["id"]
@@ -667,33 +700,34 @@ with st.sidebar:
     # ============================================================================
     # SECTION 10D: SIDEBAR - DANGEROUS ACTIONS WITH CONFIRMATION
     # ============================================================================
-    st.subheader("⚠️ Dangerous Actions")
+    st.subheader("⚠️ Clear Data")
     
     if st.session_state.confirming_clear == "session":
         st.markdown('<div class="warning-box">', unsafe_allow_html=True)
-        st.warning("**WARNING: This will permanently delete ALL answers in the current session!**")
-        st.write("Type 'DELETE SESSION' to confirm:")
-        
-        confirm_text = st.text_input("Confirmation:", key="confirm_session_delete", label_visibility="collapsed")
+        st.warning("**WARNING: This will delete ALL answers in the current session!**")
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("✅ Confirm Delete", type="primary", use_container_width=True, disabled=confirm_text != "DELETE SESSION"):
-                if confirm_text == "DELETE SESSION":
-                    current_session_id = SESSIONS[st.session_state.current_session]["id"]
-                    try:
-                        conn = sqlite3.connect('life_story.db')
-                        cursor = conn.cursor()
-                        cursor.execute("DELETE FROM responses WHERE user_id = ? AND session_id = ?", 
-                                      (st.session_state.user_id, current_session_id))
-                        conn.commit()
-                        conn.close()
-                        st.session_state.responses[current_session_id]["questions"] = {}
-                        st.session_state.confirming_clear = None
-                        st.success("Session cleared!")
-                        st.rerun()
-                    except:
-                        pass
+            if st.button("✅ Confirm Delete Session", type="primary", use_container_width=True):
+                current_session_id = SESSIONS[st.session_state.current_session]["id"]
+                try:
+                    # Delete from database
+                    conn = sqlite3.connect('life_story.db')
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM responses WHERE user_id = ? AND session_id = ?", 
+                                  (st.session_state.user_id, current_session_id))
+                    cursor.execute("DELETE FROM conversations WHERE user_id = ? AND session_id = ?", 
+                                  (st.session_state.user_id, current_session_id))
+                    conn.commit()
+                    conn.close()
+                    
+                    # Clear from session state
+                    st.session_state.responses[current_session_id]["questions"] = {}
+                    st.session_state.session_conversations[current_session_id] = {}
+                    st.session_state.confirming_clear = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
         with col2:
             if st.button("❌ Cancel", type="secondary", use_container_width=True):
                 st.session_state.confirming_clear = None
@@ -702,30 +736,31 @@ with st.sidebar:
     
     elif st.session_state.confirming_clear == "all":
         st.markdown('<div class="warning-box">', unsafe_allow_html=True)
-        st.warning("**WARNING: This will permanently delete ALL answers in ALL sessions!**")
-        st.write("Type 'DELETE ALL' to confirm:")
-        
-        confirm_text = st.text_input("Confirmation:", key="confirm_all_delete", label_visibility="collapsed")
+        st.warning("**WARNING: This will delete ALL answers for ALL sessions!**")
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("✅ Confirm Delete All", type="primary", use_container_width=True, disabled=confirm_text != "DELETE ALL"):
-                if confirm_text == "DELETE ALL":
-                    try:
-                        conn = sqlite3.connect('life_story.db')
-                        cursor = conn.cursor()
-                        cursor.execute("DELETE FROM responses WHERE user_id = ?", 
-                                      (st.session_state.user_id,))
-                        conn.commit()
-                        conn.close()
-                        for session in SESSIONS:
-                            session_id = session["id"]
-                            st.session_state.responses[session_id]["questions"] = {}
-                        st.session_state.confirming_clear = None
-                        st.success("All data cleared!")
-                        st.rerun()
-                    except:
-                        pass
+            if st.button("✅ Confirm Delete All", type="primary", use_container_width=True):
+                try:
+                    # Delete from database
+                    conn = sqlite3.connect('life_story.db')
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM responses WHERE user_id = ?", 
+                                  (st.session_state.user_id,))
+                    cursor.execute("DELETE FROM conversations WHERE user_id = ?", 
+                                  (st.session_state.user_id,))
+                    conn.commit()
+                    conn.close()
+                    
+                    # Clear from session state
+                    for session in SESSIONS:
+                        session_id = session["id"]
+                        st.session_state.responses[session_id]["questions"] = {}
+                        st.session_state.session_conversations[session_id] = {}
+                    st.session_state.confirming_clear = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
         with col2:
             if st.button("❌ Cancel", type="secondary", use_container_width=True):
                 st.session_state.confirming_clear = None
@@ -755,10 +790,13 @@ col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Session {current_session_id}: {current_session['title']}")
     
+    # Show response count for this session
+    session_responses = len(st.session_state.responses[current_session_id].get("questions", {}))
+    total_questions = len(current_session["questions"])
+    st.caption(f"📝 {session_responses}/{total_questions} topics answered")
+    
     if st.session_state.ghostwriter_mode:
-        st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode • Advanced Interviewing</p>', unsafe_allow_html=True)
-    else:
-        st.markdown('<p class="ghostwriter-tag">Standard Interview Mode</p>', unsafe_allow_html=True)
+        st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode</p>', unsafe_allow_html=True)
         
 with col2:
     st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Topic {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
@@ -800,10 +838,10 @@ if total_topics > 0:
     st.caption(f"📝 Topics explored: {topics_answered}/{total_topics} ({topic_progress*100:.0f}%)")
 
 # ============================================================================
-# SECTION 12: CONVERSATION DISPLAY AND CHAT INPUT
+# SECTION 12: CONVERSATION DISPLAY AND CHAT INPUT (FIXED)
 # ============================================================================
+# Get or create conversation for this question
 current_session_id = current_session["id"]
-current_question_text = current_session["questions"][st.session_state.current_question]
 
 if current_session_id not in st.session_state.session_conversations:
     st.session_state.session_conversations[current_session_id] = {}
@@ -811,9 +849,19 @@ if current_session_id not in st.session_state.session_conversations:
 conversation = st.session_state.session_conversations[current_session_id].get(current_question_text, [])
 
 if not conversation:
-    # Custom avatar for ghostwriter
-    with st.chat_message("assistant", avatar="👔"):
-        if st.session_state.ghostwriter_mode:
+    # Check if we have a saved response for this question
+    saved_response = st.session_state.responses[current_session_id]["questions"].get(current_question_text)
+    
+    if saved_response:
+        # We have a saved response but no conversation - create one
+        conversation = [
+            {"role": "assistant", "content": f"Let's explore this topic in detail: {current_question_text}"},
+            {"role": "user", "content": saved_response["answer"]}
+        ]
+        st.session_state.session_conversations[current_session_id][current_question_text] = conversation
+    else:
+        # Start new conversation
+        with st.chat_message("assistant", avatar="👔"):
             welcome_msg = f"""<div style='font-size: 1.4rem; margin-bottom: 1rem;'>
 Let's explore this topic in detail:
 </div>
@@ -821,128 +869,101 @@ Let's explore this topic in detail:
 {current_question_text}
 </div>
 <div style='font-size: 1.1rem; margin-top: 1.5rem; color: #555;'>
-Take your time with this—good biographies are built from thoughtful reflection rather than quick answers.
+Take your time with this—good biographies are built from thoughtful reflection.
 </div>"""
-        else:
-            welcome_msg = f"""<div style='font-size: 1.4rem; margin-bottom: 1rem;'>
-I'd love to hear your thoughts about this topic:
-</div>
-<div style='font-size: 1.8rem; font-weight: bold; color: #2c3e50; line-height: 1.3;'>
-{current_question_text}
-</div>"""
-        
-        st.markdown(welcome_msg, unsafe_allow_html=True)
-        conversation.append({"role": "assistant", "content": f"Let's explore this topic in detail: {current_question_text}\n\nTake your time with this—good biographies are built from thoughtful reflection rather than quick answers."})
-        st.session_state.session_conversations[current_session_id][current_question_text] = conversation
-else:
-    for i, message in enumerate(conversation):
-        if message["role"] == "assistant":
-            # Custom avatar for ghostwriter
-            with st.chat_message("assistant", avatar="👔"):
-                st.markdown(message["content"])
-        
-        elif message["role"] == "user":
-            is_editing = (st.session_state.editing == (current_session_id, current_question_text, i))
             
-            # Custom avatar for storyteller
-            with st.chat_message("user", avatar="👤"):
-                if is_editing:
-                    # Edit mode
-                    new_text = st.text_area(
-                        "Edit your answer:",
-                        value=st.session_state.edit_text,
-                        key=f"edit_area_{current_session_id}_{hash(current_question_text)}_{i}",
-                        height=150,
-                        label_visibility="collapsed"
-                    )
-                    
-                    if new_text:
-                        edit_word_count = len(re.findall(r'\w+', new_text))
-                        st.caption(f"📝 Editing: {edit_word_count} words")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("✓ Save", key=f"save_{current_session_id}_{hash(current_question_text)}_{i}", type="primary"):
-                            # Auto-correct before saving
-                            if st.session_state.spellcheck_enabled:
-                                new_text = auto_correct_text(new_text)
-                            
-                            conversation[i]["content"] = new_text
-                            st.session_state.session_conversations[current_session_id][current_question_text] = conversation
-                            save_response(current_session_id, current_question_text, new_text)
-                            st.session_state.editing = None
-                            st.rerun()
-                    with col2:
-                        if st.button("✕ Cancel", key=f"cancel_{current_session_id}_{hash(current_question_text)}_{i}"):
-                            st.session_state.editing = None
-                            st.rerun()
-                else:
-                    col1, col2 = st.columns([5, 1])
-                    with col1:
-                        st.markdown(message["content"])
-                        word_count = len(re.findall(r'\w+', message["content"]))
-                        st.caption(f"📝 {word_count} words • Click ✏️ to edit")
-                    with col2:
-                        if st.button("✏️", key=f"edit_{current_session_id}_{hash(current_question_text)}_{i}"):
-                            st.session_state.editing = (current_session_id, current_question_text, i)
-                            st.session_state.edit_text = message["content"]
-                            st.rerun()
+            st.markdown(welcome_msg, unsafe_allow_html=True)
+            conversation.append({"role": "assistant", "content": f"Let's explore this topic in detail: {current_question_text}\n\nTake your time with this—good biographies are built from thoughtful reflection."})
+            st.session_state.session_conversations[current_session_id][current_question_text] = conversation
+
+# Display existing conversation
+for i, message in enumerate(conversation):
+    if message["role"] == "assistant":
+        with st.chat_message("assistant", avatar="👔"):
+            st.markdown(message["content"])
+    
+    elif message["role"] == "user":
+        is_editing = (st.session_state.editing == (current_session_id, current_question_text, i))
+        
+        with st.chat_message("user", avatar="👤"):
+            if is_editing:
+                # Edit mode
+                new_text = st.text_area(
+                    "Edit your answer:",
+                    value=st.session_state.edit_text,
+                    key=f"edit_area_{current_session_id}_{hash(current_question_text)}_{i}",
+                    height=150,
+                    label_visibility="collapsed"
+                )
+                
+                if new_text:
+                    edit_word_count = len(re.findall(r'\w+', new_text))
+                    st.caption(f"📝 Editing: {edit_word_count} words")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✓ Save", key=f"save_{current_session_id}_{hash(current_question_text)}_{i}", type="primary"):
+                        # Auto-correct before saving
+                        if st.session_state.spellcheck_enabled:
+                            new_text = auto_correct_text(new_text)
+                        
+                        # Update conversation
+                        conversation[i]["content"] = new_text
+                        st.session_state.session_conversations[current_session_id][current_question_text] = conversation
+                        
+                        # Save to database
+                        save_response(st.session_state.user_id, current_session_id, current_question_text, new_text)
+                        save_conversation(st.session_state.user_id, current_session_id, current_question_text, conversation)
+                        
+                        # Update session state
+                        st.session_state.responses[current_session_id]["questions"][current_question_text] = {
+                            "answer": new_text,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        
+                        st.session_state.editing = None
+                        st.rerun()
+                with col2:
+                    if st.button("✕ Cancel", key=f"cancel_{current_session_id}_{hash(current_question_text)}_{i}"):
+                        st.session_state.editing = None
+                        st.rerun()
+            else:
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    st.markdown(message["content"])
+                    word_count = len(re.findall(r'\w+', message["content"]))
+                    st.caption(f"📝 {word_count} words • Click ✏️ to edit")
+                with col2:
+                    if st.button("✏️", key=f"edit_{current_session_id}_{hash(current_question_text)}_{i}"):
+                        st.session_state.editing = (current_session_id, current_question_text, i)
+                        st.session_state.edit_text = message["content"]
+                        st.rerun()
 
 # ============================================================================
-# CHAT INPUT BOX - MUST BE DIRECTLY HERE
+# CHAT INPUT BOX
 # ============================================================================
-
-# Create a container for the chat input
 input_container = st.container()
 
 with input_container:
-    # Add some spacing
     st.write("")
     st.write("")
     
-    # Create the chat input
     user_input = st.chat_input("Type your answer here...")
     
     if user_input:
-        # Auto-correct as they type
+        # Auto-correct if enabled
         if st.session_state.spellcheck_enabled:
             user_input = auto_correct_text(user_input)
         
         # Add user message to conversation
         conversation.append({"role": "user", "content": user_input})
         
-        # Generate AI response with expert critique
-        # Custom avatar for ghostwriter
+        # Generate AI response
         with st.chat_message("assistant", avatar="👔"):
             with st.spinner("Reflecting on your story..."):
                 try:
-                    # First, analyze the person's response for critique
-                    critique_prompt = f"""As a professional ghostwriter, analyze this response to the topic: "{current_question_text}"
-
-PERSON'S STORY:
-{user_input}
-
-Provide a brief professional assessment (3-4 sentences max) focusing on:
-1. What's working well narratively
-2. What could be deepened or expanded
-3. One specific suggestion for richer detail
-
-Keep it concise, constructive, and professional. Focus on storytelling craft, not praise. Refer to the person as "the storyteller", "they", or "their story" - never use clinical terms like "user"."""
-
-                    critique_response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You're a seasoned biographer with 30 years experience. You provide sharp, constructive feedback that helps writers find their most compelling stories. Always refer to people as 'the storyteller', 'they', or use their name if provided - never use clinical terms like 'user' or 'the user'."},
-                            {"role": "user", "content": critique_prompt}
-                        ],
-                        temperature=0.7,
-                        max_tokens=200
-                    )
-                    
-                    critique = critique_response.choices[0].message.content
-                    
-                    # Now generate the conversational follow-up
-                    conversation_history = conversation[:-1]  # Get everything except the just-added user message
+                    # Generate thoughtful response
+                    conversation_history = conversation[:-1]
                     
                     messages_for_api = [
                         {"role": "system", "content": get_system_prompt()},
@@ -966,58 +987,38 @@ Keep it concise, constructive, and professional. Focus on storytelling craft, no
                     
                     ai_response = response.choices[0].message.content
                     
-                    # Add the expert critique at the end
-                    ai_response += f"\n\n---\n\n**Professional note:** {critique}"
+                    # Add professional note
+                    word_count = len(re.findall(r'\w+', user_input))
+                    if word_count < 50:
+                        ai_response += f"\n\n**Note:** You've touched on something important. Consider expanding on the sensory details—what did you see, hear, feel?"
+                    elif word_count < 150:
+                        ai_response += f"\n\n**Note:** Good detail. Where does the emotional weight live in this memory?"
                     
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
                     
                 except Exception as e:
-                    # Fallback if critique fails
-                    try:
-                        conversation_history = conversation[:-1]
-                        
-                        messages_for_api = [
-                            {"role": "system", "content": get_system_prompt()},
-                            *conversation_history,
-                            {"role": "user", "content": user_input}
-                        ]
-                        
-                        response = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=messages_for_api,
-                            temperature=0.8,
-                            max_tokens=400
-                        )
-                        
-                        ai_response = response.choices[0].message.content
-                        
-                        # Add a thoughtful observation instead
-                        word_count = len(re.findall(r'\w+', user_input))
-                        if word_count < 50:
-                            ai_response += f"\n\n**Observation:** You've touched on something important here. What would happen if you slowed down this moment? What details are just outside the frame of this memory?"
-                        elif word_count < 150:
-                            ai_response += f"\n\n**Observation:** There's good texture in this recollection. I'm noticing where the emotion lives in this story—let's explore that space more deliberately."
-                        else:
-                            ai_response += f"\n\n**Observation:** This has real narrative weight. The challenge now is curation—what's the through-line that makes this memory essential to your story?"
-                        
-                        st.markdown(ai_response)
-                        conversation.append({"role": "assistant", "content": ai_response})
-                        
-                    except Exception as e2:
-                        error_msg = "Thank you for sharing that. Your response has been saved."
-                        st.markdown(error_msg)
-                        conversation.append({"role": "assistant", "content": error_msg})
+                    error_msg = "Thank you for sharing that. Your response has been saved."
+                    st.markdown(error_msg)
+                    conversation.append({"role": "assistant", "content": error_msg})
         
-        # Save to database
-        save_response(current_session_id, current_question_text, user_input)
-        
-        # Update conversation
+        # Save everything
         st.session_state.session_conversations[current_session_id][current_question_text] = conversation
         
+        # Save to database
+        save_response(st.session_state.user_id, current_session_id, current_question_text, user_input)
+        save_conversation(st.session_state.user_id, current_session_id, current_question_text, conversation)
+        
+        # Update session state
+        st.session_state.responses[current_session_id]["questions"][current_question_text] = {
+            "answer": user_input,
+            "timestamp": datetime.now().isoformat()
+        }
+        
         st.rerun()
+
 # ============================================================================
-# SECTION 13: WORD PROGRESS INDICATOR (BELOW CHAT INPUT)
+# SECTION 13: WORD PROGRESS INDICATOR
 # ============================================================================
 st.divider()
 
@@ -1082,7 +1083,7 @@ with col1:
     total_words_all_sessions = sum(calculate_author_word_count(s["id"]) for s in SESSIONS)
     st.metric("Total Words", f"{total_words_all_sessions}")
 with col2:
-    completed_sessions = sum(1 for s in SESSIONS if st.session_state.responses[s["id"]].get("completed", False))
+    completed_sessions = sum(1 for s in SESSIONS if len(st.session_state.responses[s["id"]].get("questions", {})) == len(s["questions"]))
     st.metric("Completed Sessions", f"{completed_sessions}/{len(SESSIONS)}")
 with col3:
     total_topics_answered = sum(len(st.session_state.responses[s["id"]].get("questions", {})) for s in SESSIONS)
@@ -1090,96 +1091,10 @@ with col3:
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 
 # ============================================================================
-# SECTION: PUBLISH YOUR BIOGRAPHY (WITH EXPORT DATA IN URL)
+# SECTION 15: SIMPLE PUBLISH & VAULT SECTION
 # ============================================================================
 st.divider()
-st.subheader("📖 Ready to Publish Your Biography?")
-
-# Get the current user's data
-current_user = st.session_state.get('user_id', '')
-export_data = {}
-
-# Prepare data for export - using your existing session state structure
-for session in SESSIONS:
-    session_id = session["id"]
-    session_data = st.session_state.responses.get(session_id, {})
-    if session_data.get("questions"):
-        export_data[str(session_id)] = {
-            "title": session["title"],
-            "questions": session_data["questions"]
-        }
-
-if current_user and current_user != "Guest" and export_data:
-    # Count total stories
-    total_stories = sum(len(session['questions']) for session in export_data.values())
-    
-    # Create JSON data
-    json_data = json.dumps({
-        "user": current_user,
-        "stories": export_data,
-        "export_date": datetime.now().isoformat()
-    }, indent=2)
-    
-    # Encode the data for URL
-    import base64
-    encoded_data = base64.b64encode(json_data.encode()).decode()
-    
-    # Create URL with the data
-    publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
-    publisher_url = f"{publisher_base_url}?data={encoded_data}"
-    
-    st.markdown(f"""
-    Your **{total_stories} stories** are ready to publish.
-    
-    **[🖨️ Click here to generate your biography]({publisher_url})**
-    
-    *All your data comes automatically - no typing needed!*
-    """)
-    
-    # Also provide manual download as backup
-    with st.expander("📥 Backup: Download Data File"):
-        st.download_button(
-            label="Download Stories as JSON",
-            data=json_data,
-            file_name=f"{current_user}_stories.json",
-            mime="application/json"
-        )
-        st.caption("If the link doesn't work, download this file and upload it in the publisher app.")
-        
-elif current_user and current_user != "Guest":
-    st.info("💡 **Answer some questions first!** Your stories will appear here once you save them.")
-else:
-    st.info("👤 **Please enter your name in the sidebar to begin.**")
-
-st.caption("Your data stays private - it's encoded in the URL and never stored on our servers.")
-
-# ============================================================================
-# SECTION: CONNECT TO YOUR SECURE LEGACY VAULT
-# ============================================================================
-st.divider()
-st.subheader("🔐 Store Your Biography Securely")
-
-# Replace this with your actual vault app URL
-VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app/"
-
-st.markdown(f"""
-**Your biography is complete!**
-
-Preserve it alongside your legal documents, photos, and important files in your personal, encrypted vault.
-
-**[➡️ Go to Secure Legacy Vault]({VAULT_APP_URL})**
-
-*Features of your vault:*
-*   **Zero-Knowledge Encryption:** Your password never leaves your device.
-*   **Organized Storage:** Categorize documents (Legal, Medical, Personal, Biography).
-*   **Future-Proof:** Designed to preserve your legacy for generations.
-""")
-
-# ============================================================================
-# SECTION: PUBLISH & VAULT SAVE (SIMPLE & WORKING)
-# ============================================================================
-st.divider()
-st.subheader("📖 Publish & Save Your Biography")
+st.subheader("📘 Publish Your Biography")
 
 # Get the current user's data
 current_user = st.session_state.get('user_id', '')
@@ -1214,95 +1129,50 @@ if current_user and current_user != "Guest" and export_data:
     publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
     publisher_url = f"{publisher_base_url}?data={encoded_data}"
     
-    st.success(f"✅ **{total_stories} stories ready!**")
+    st.success(f"✅ **{total_stories} stories ready to publish!**")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### 🖨️ Step 1: Create Your Book")
+        st.markdown("#### 🖨️ Create Your Book")
         st.markdown(f"""
-        Generate a professionally formatted biography from your **{total_stories} stories**.
+        Generate a beautiful, formatted biography from your stories.
         
-        **Features:**
-        • Beautiful cover page
+        **[📘 Click to Create Biography]({publisher_url})**
+        
+        Your book will include:
+        • Professional formatting
         • Table of contents
-        • Each session formatted
+        • All your stories organized
         • Ready to print or share
         """)
-        
-        # Button to open publisher
-        st.link_button(
-            "📘 Create Beautiful Biography",
-            publisher_url,
-            type="primary",
-            use_container_width=True,
-            help="Opens the biography publisher to format your stories"
-        )
-        
-        # Also show as download for backup
-        with st.expander("📥 Download Raw Data (Backup)"):
-            st.download_button(
-                label="Download Stories as JSON",
-                data=json_data,
-                file_name=f"{current_user}_stories.json",
-                mime="application/json",
-                use_container_width=True
-            )
-            st.caption("Use this if the link doesn't work")
     
     with col2:
-        st.markdown("#### 🔐 Step 2: Save to Your Vault")
+        st.markdown("#### 🔐 Save to Your Vault")
         st.markdown("""
-        **After creating your beautiful biography:**
+        **After creating your book:**
         
-        1. **Generate** your book (click button on left)
-        2. **Download** the formatted PDF from the publisher
-        3. **Save** it to your secure vault
+        1. Generate your biography (link on left)
+        2. Download the formatted PDF
+        3. Save it to your secure vault
         
-        Your vault is where all important documents live forever.
+        **[💾 Go to Secure Vault](https://digital-legacy-vault.streamlit.app)**
+        
+        Your vault preserves important documents forever.
         """)
-        
-        # Simple link to vault
-        vault_url = "https://digital-legacy-vault.streamlit.app"
-        st.link_button(
-            "💾 Go to Secure Vault",
-            vault_url,
-            use_container_width=True,
-            help="Opens your secure digital legacy vault"
-        )
-        
-        st.caption("⚠️ Keep your vault password safe!")
     
-    # Preview of what will be included
-    with st.expander("📋 Preview Your Stories", expanded=False):
-        st.write(f"**User:** {current_user}")
-        st.write(f"**Total Stories:** {total_stories}")
-        st.write("**Sessions included:**")
-        for session_id, session_data in export_data.items():
-            session_title = session_data.get('title', f'Session {session_id}')
-            story_count = len(session_data.get('questions', {}))
-            st.write(f"• **{session_title}**: {story_count} stories")
+    # Backup download
+    with st.expander("📥 Download Raw Data (Backup)"):
+        st.download_button(
+            label="Download Stories as JSON",
+            data=json_data,
+            file_name=f"{current_user}_stories.json",
+            mime="application/json",
+            use_container_width=True
+        )
+        st.caption("Use this if the publisher link doesn't work")
         
 elif current_user and current_user != "Guest":
-    st.info("📝 **Answer some questions first!** Your biography will appear here once you save some stories.")
-    st.markdown("""
-    **How it works:**
-    1. Answer interview questions (topics above)
-    2. Your stories are saved automatically
-    3. Come back here to publish & save
-    """)
+    st.info("📝 **Answer some questions first!** Come back here after saving some stories.")
 else:
-    st.info("👤 **Please enter your name in the sidebar to begin.**")
-
-st.markdown("---")
-st.markdown("""
-### 🛡️ Your Secure Legacy Vault
-Your **Digital Legacy Vault** is where you store important documents forever:
-
-- **Zero-Knowledge Encryption:** Only you can read your files
-- **Biography Section:** Special category for life stories
-- **Future Access:** Share with loved ones when needed
-- **Permanent Storage:** Preserve your legacy for generations
-
-*Once you create your beautiful biography, save it here for safekeeping.*
-""")
+    st.info("👤 **Enter your name in the sidebar to begin**")
