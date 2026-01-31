@@ -1237,24 +1237,88 @@ else:
 
 st.caption("Your data stays private - it's encoded in the URL and never stored on our servers.")
 # ============================================================================
-# SECTION: CONNECT TO YOUR SECURE LEGACY VAULT
+# SECTION: DIRECT VAULT UPLOAD (Download + Pre-fill Method)
 # ============================================================================
 st.divider()
-st.subheader("🔐 Store Your Biography Securely")
+st.subheader("🔐 One-Click Vault Upload")
 
-# Replace this with your actual vault app URL
-VAULT_APP_URL = "https://digital-legacy-vault.streamlit.app"
+# Your actual vault URL - CHANGE THIS TO YOUR REAL VAULT URL!
+VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app"  # ⬅️ YOUR REAL URL
 
-st.markdown(f"""
-**Your biography is complete!**
+# Get user name for filename
+user_name = st.session_state.get('user_id', 'User').replace(' ', '_')
+filename = f"{user_name}_Life_Story.txt"
 
-Preserve it alongside your legal documents, photos, and important files in your personal, encrypted vault.
+# Create the pre-filled vault link
+import urllib.parse
+encoded_filename = urllib.parse.quote(filename)
+prefilled_vault_link = f"{VAULT_APP_URL}?prefill_name={encoded_filename}&category=Biography&source=biography_app"
 
-**[➡️ Go to Secure Legacy Vault]({VAULT_APP_URL})**
+col1, col2 = st.columns(2)
 
-*Features of your vault:*
-*   **Zero-Knowledge Encryption:** Your password never leaves your device.
-*   **Organized Storage:** Categorize documents (Legal, Medical, Personal, Biography).
-*   **Future-Proof:** Designed to preserve your legacy for generations.
-""")
+with col1:
+    st.markdown("#### 📥 Step 1: Download Your Biography")
+    
+    # Check if we have stories to export
+    if export_data and total_stories > 0:
+        # Create a simple text version of the biography
+        biography_text = f"Life Story of {user_name}\n"
+        biography_text += "=" * 50 + "\n\n"
+        
+        for session_id, session_data in export_data.items():
+            biography_text += f"## {session_data.get('title', f'Session {session_id}')}\n\n"
+            for question, answer_data in session_data.get('questions', {}).items():
+                biography_text += f"### {question}\n"
+                biography_text += f"{answer_data.get('answer', '')}\n\n"
+        
+        # Download button
+        st.download_button(
+            label="💾 Download Biography (.txt)",
+            data=biography_text,
+            file_name=filename,
+            mime="text/plain",
+            type="primary",
+            use_container_width=True,
+            help="Download your complete biography as a text file"
+        )
+        
+        st.caption(f"Contains {total_stories} stories, ready for your vault.")
+    else:
+        st.warning("No stories to download yet.")
+        st.info("Complete some interview questions first!")
+
+with col2:
+    st.markdown("#### 🚀 Step 2: Upload to Secure Vault")
+    
+    st.markdown(f"""
+    **Simple 2-step process:**
+    
+    1. **Download** your biography (button on left)
+    2. **[Go to Your Secure Vault]({prefilled_vault_link})**
+    
+    **The vault will automatically:**
+    • Suggest filename: `{filename}`
+    • Select "Biography" category
+    • Add helpful notes
+    
+    *Your vault is ready to receive your biography!*
+    """)
+    
+    # Show the link for debugging
+    with st.expander("🔍 View generated link", expanded=False):
+        st.code(prefilled_vault_link)
+        st.caption("This link opens your vault with pre-filled information.")
+
+# Optional: Show what will be in the biography
+if export_data and total_stories > 0:
+    with st.expander("📋 Preview Biography Contents", expanded=False):
+        st.write(f"**Filename:** `{filename}`")
+        st.write(f"**Total Stories:** {total_stories}")
+        st.write(f"**User:** {user_name}")
+        st.write("**Contains sessions:**")
+        for session_id in export_data.keys():
+            st.write(f"- {export_data[session_id].get('title', f'Session {session_id}')}")
+
+st.info("💡 **Tip:** Keep your vault password safe! Without it, your encrypted files cannot be recovered.")
+
 
