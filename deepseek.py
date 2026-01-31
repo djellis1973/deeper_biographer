@@ -347,38 +347,70 @@ def load_word_targets():
     return targets
 
 # ============================================================================
-# SECTION 5: SESSION STATE INITIALIZATION (FIXED - WITH PERSISTENCE)
+# SECTION 5: SESSION STATE INITIALIZATION (FIXED - CORRECT ORDER)
 # ============================================================================
-if "initialized" not in st.session_state:
-    # [KEEP ALL YOUR EXISTING INITIALIZATION CODE HERE...]
-    # ... st.session_state.user_id = "Guest"
-    # ... st.session_state.responses = {}
-    # ... etc.
 
-    # --- CRITICAL NEW STEP: LOAD DATA FOR LOGGED-IN USER ---
-    # After initializing empty structures, check if a user is already set.
-    # If they are NOT "Guest", immediately load their data from the database.
-    if st.session_state.user_id != "Guest":
-        # Load word targets first
-        word_targets = load_word_targets()
-        for session_id, target in word_targets.items():
-            if session_id in st.session_state.responses:
-                st.session_state.responses[session_id]["word_target"] = target
-        
-        # Load user's specific responses and conversations
-        user_data = load_user_data(st.session_state.user_id)
-        
-        # Load responses into session state
-        for session_id, questions in user_data.get("responses", {}).items():
-            session_id_int = int(session_id)
-            if session_id_int in st.session_state.responses:
-                st.session_state.responses[session_id_int]["questions"] = questions
-        
-        # Load conversations into session state
-        for session_id, conversations in user_data.get("conversations", {}).items():
-            session_id_int = int(session_id)
-            if session_id_int in st.session_state.session_conversations:
-                st.session_state.session_conversations[session_id_int] = conversations
+# 1. FIRST, define ALL default session state variables.
+#    This ensures they exist before we try to use them.
+if "user_id" not in st.session_state:
+    st.session_state.user_id = "Guest"
+if "current_session" not in st.session_state:
+    st.session_state.current_session = 0
+if "current_question" not in st.session_state:
+    st.session_state.current_question = 0
+if "responses" not in st.session_state:
+    st.session_state.responses = {}
+if "session_conversations" not in st.session_state:
+    st.session_state.session_conversations = {}
+if "editing" not in st.session_state:
+    st.session_state.editing = None
+if "edit_text" not in st.session_state:
+    st.session_state.edit_text = ""
+if "ghostwriter_mode" not in st.session_state:
+    st.session_state.ghostwriter_mode = True
+if "spellcheck_enabled" not in st.session_state:
+    st.session_state.spellcheck_enabled = True
+if "editing_word_target" not in st.session_state:
+    st.session_state.editing_word_target = False
+if "confirming_clear" not in st.session_state:
+    st.session_state.confirming_clear = None
+
+# 2. SECOND, ensure the main data structures are fully built.
+#    This runs only if 'responses' was just created empty.
+if st.session_state.responses == {}:
+    for session in SESSIONS:
+        session_id = session["id"]
+        st.session_state.responses[session_id] = {
+            "title": session["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False,
+            "word_target": session.get("word_target", 500)
+        }
+        st.session_state.session_conversations[session_id] = {}
+
+    # Load default word targets from the database
+    word_targets = load_word_targets()
+    for session_id, target in word_targets.items():
+        if session_id in st.session_state.responses:
+            st.session_state.responses[session_id]["word_target"] = target
+
+# 3. THIRD and MOST IMPORTANT: Load the user's personal data.
+#    This check must come AFTER 'user_id' is guaranteed to exist.
+if st.session_state.user_id != "Guest":
+    user_data = load_user_data(st.session_state.user_id)
+    
+    # Load responses into session state
+    for session_id, questions in user_data.get("responses", {}).items():
+        session_id_int = int(session_id)
+        if session_id_int in st.session_state.responses:
+            st.session_state.responses[session_id_int]["questions"] = questions
+    
+    # Load conversations into session state
+    for session_id, conversations in user_data.get("conversations", {}).items():
+        session_id_int = int(session_id)
+        if session_id_int in st.session_state.session_conversations:
+            st.session_state.session_conversations[session_id_int] = conversations
 
 # ============================================================================
 # SECTION 6: CORE APPLICATION FUNCTIONS
@@ -1180,5 +1212,6 @@ elif current_user and current_user != "Guest":
     st.info("📝 **Answer some questions first!** Come back here after saving some stories.")
 else:
     st.info("👤 **Enter your name in the sidebar to begin**")
+
 
 
