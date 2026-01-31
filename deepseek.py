@@ -1176,13 +1176,13 @@ Preserve it alongside your legal documents, photos, and important files in your 
 """)
 
 # ============================================================================
-# SECTION: DIRECT VAULT UPLOAD (Download + Pre-fill Method)
+# SECTION: DIRECT VAULT UPLOAD (One-Click Method)
 # ============================================================================
 st.divider()
-st.subheader("🔐 One-Click Vault Upload")
+st.subheader("🚀 Save to Your Secure Vault")
 
 # Your actual vault URL - CHANGE THIS TO YOUR REAL VAULT URL!
-VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app/"  # ⬅️ YOUR REAL URL
+VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app"  # ⬅️ YOUR REAL URL
 
 # Get user name for filename
 user_name = st.session_state.get('user_id', 'User').replace(' ', '_')
@@ -1196,7 +1196,7 @@ prefilled_vault_link = f"{VAULT_APP_URL}?prefill_name={encoded_filename}&categor
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("#### 📥 Step 1: Download Your Biography")
+    st.markdown("#### 📦 Prepare Your Biography")
     
     # Check if we have stories to export
     if export_data and total_stories > 0:
@@ -1212,7 +1212,7 @@ with col1:
         
         # Download button
         st.download_button(
-            label="💾 Download Biography (.txt)",
+            label="📥 Download Biography (.txt)",
             data=biography_text,
             file_name=filename,
             mime="text/plain",
@@ -1222,45 +1222,73 @@ with col1:
         )
         
         st.caption(f"Contains {total_stories} stories, ready for your vault.")
+        
+        # Show what's included
+        with st.expander("📋 Preview Biography Contents", expanded=False):
+            st.write(f"**Filename:** `{filename}`")
+            st.write(f"**Total Stories:** {total_stories}")
+            st.write(f"**User:** {user_name}")
+            st.write("**Contains sessions:**")
+            for session_id in export_data.keys():
+                st.write(f"- {export_data[session_id].get('title', f'Session {session_id}')}")
     else:
-        st.warning("No stories to download yet.")
+        st.warning("No stories to save yet.")
         st.info("Complete some interview questions first!")
+        biography_text = ""
 
 with col2:
-    st.markdown("#### 🚀 Step 2: Upload to Secure Vault")
+    st.markdown("#### 🔒 Secure Storage Instructions")
     
-    st.markdown(f"""
-    **Simple 2-step process:**
-    
-    1. **Download** your biography (button on left)
-    2. **[➡️ Go to Your Secure Vault]({prefilled_vault_link})**
-    
-    **The vault will automatically:**
-    • Suggest filename: `{filename}`
-    • Select "Biography" category
-    • Add helpful notes
-    
-    *Your vault is ready to receive your biography!*
-    """)
-    
-    # Show the link for debugging
-    with st.expander("🔍 View generated link", expanded=False):
-        st.code(prefilled_vault_link)
-        st.caption("This link opens your vault with pre-filled information.")
+    if export_data and total_stories > 0:
+        st.success(f"✅ **{total_stories} stories ready to save!**")
+        
+        st.markdown(f"""
+        **How to save your biography:**
+        
+        1. **Click the download button** (← left) to save your file
+        2. **[Open your secure vault]({prefilled_vault_link})**
+        3. **Upload** the downloaded file when prompted
+        
+        **The vault will automatically:**
+        • Suggest filename: `{filename}`
+        • Select "Biography" category
+        • Add helpful notes
+        
+        ⚠️ **Important:** Keep your vault password safe! Without it, your encrypted files cannot be recovered.
+        """)
+        
+        # Direct link to vault
+        st.link_button(
+            "🔗 Open My Secure Vault",
+            prefilled_vault_link,
+            use_container_width=True,
+            help="Opens your vault app in a new tab"
+        )
+        
+        # Show the link for debugging
+        with st.expander("🔍 View vault link details", expanded=False):
+            st.code(prefilled_vault_link)
+            st.caption("This link opens your vault with pre-filled information. Save it as a bookmark!")
+    else:
+        st.info("📝 **Complete your biography first!**")
+        st.markdown("""
+        Once you've answered some questions, you'll see:
+        1. A download button for your biography
+        2. Instructions for saving to your vault
+        3. A direct link to your secure vault
+        """)
 
-# Optional: Show what will be in the biography
-if export_data and total_stories > 0:
-    with st.expander("📋 Preview Biography Contents", expanded=False):
-        st.write(f"**Filename:** `{filename}`")
-        st.write(f"**Total Stories:** {total_stories}")
-        st.write(f"**User:** {user_name}")
-        st.write("**Contains sessions:**")
-        for session_id in export_data.keys():
-            st.write(f"- {export_data[session_id].get('title', f'Session {session_id}')}")
+# Optional: Show security info
+st.markdown("---")
+st.markdown("""
+### 🛡️ About Your Secure Vault
 
-st.info("💡 **Tip:** Keep your vault password safe! Without it, your encrypted files cannot be recovered.")
+Your **Digital Legacy Vault** is a zero-knowledge encrypted storage system:
 
+- **Military-Grade Encryption:** Your files are encrypted before they leave your device
+- **Biography Category:** Special section designed for life stories
+- **Future Access:** Share access instructions with loved ones
+- **No Data Mining:** We never read or analyze your personal stories
 
-
-
-
+*Your biography deserves the highest level of protection.*
+""")
