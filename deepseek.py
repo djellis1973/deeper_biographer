@@ -195,21 +195,18 @@ SESSIONS = [
 ]
 
 # ============================================================================
-# SECTION 4: DATABASE FUNCTIONS (FIXED)
+# SECTION 4: DATABASE FUNCTIONS
 # ============================================================================
 def init_db():
-    """Initialize database tables"""
     conn = sqlite3.connect('life_story.db')
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS responses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            session_id INTEGER NOT NULL,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(user_id, session_id, question)
+            user_id TEXT,
+            session_id INTEGER,
+            question TEXT,
+            answer TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     cursor.execute('''
@@ -218,148 +215,29 @@ def init_db():
             word_target INTEGER DEFAULT 500
         )
     ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS conversations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            session_id INTEGER NOT NULL,
-            question TEXT NOT NULL,
-            conversation TEXT NOT NULL,
-            UNIQUE(user_id, session_id, question)
-        )
-    ''')
     conn.commit()
     conn.close()
 
 init_db()
 
-def load_user_data(user_id):
-    """Load all data for a specific user"""
-    if user_id == "Guest":
-        return {}
-    
-    data = {"responses": {}, "conversations": {}}
-    
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        
-        # Load responses
-        cursor.execute("""
-            SELECT session_id, question, answer 
-            FROM responses 
-            WHERE user_id = ?
-            ORDER BY session_id, timestamp
-        """, (user_id,))
-        
-        for session_id, question, answer in cursor.fetchall():
-            if session_id not in data["responses"]:
-                data["responses"][session_id] = {}
-            data["responses"][session_id][question] = {
-                "answer": answer,
-                "timestamp": datetime.now().isoformat()
-            }
-        
-        # Load conversations
-        cursor.execute("""
-            SELECT session_id, question, conversation 
-            FROM conversations 
-            WHERE user_id = ?
-        """, (user_id,))
-        
-        for session_id, question, conversation_json in cursor.fetchall():
-            if session_id not in data["conversations"]:
-                data["conversations"][session_id] = {}
-            try:
-                data["conversations"][session_id][question] = json.loads(conversation_json)
-            except:
-                data["conversations"][session_id][question] = []
-        
-        conn.close()
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-    
-    return data
-
-def save_response(user_id, session_id, question, answer):
-    """Save a response to database"""
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO responses 
-            (user_id, session_id, question, answer) 
-            VALUES (?, ?, ?, ?)
-        """, (user_id, session_id, question, answer))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        st.error(f"Error saving response: {e}")
-        return False
-
-def save_conversation(user_id, session_id, question, conversation):
-    """Save a conversation to database"""
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO conversations 
-            (user_id, session_id, question, conversation) 
-            VALUES (?, ?, ?, ?)
-        """, (user_id, session_id, question, json.dumps(conversation)))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        st.error(f"Error saving conversation: {e}")
-        return False
-
-def save_word_target(session_id, word_target):
-    """Save word target to database"""
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO word_targets 
-            (session_id, word_target) 
-            VALUES (?, ?)
-        """, (session_id, word_target))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        st.error(f"Error saving word target: {e}")
-        return False
-
-def load_word_targets():
-    """Load all word targets from database"""
-    targets = {}
-    try:
-        conn = sqlite3.connect('life_story.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT session_id, word_target FROM word_targets")
-        for session_id, word_target in cursor.fetchall():
-            targets[session_id] = word_target
-        conn.close()
-    except:
-        pass
-    return targets
-
 # ============================================================================
-# SECTION 5: SESSION STATE INITIALIZATION (FIXED - CORRECT ORDER)
+# SECTION 5: USER PERSISTENCE WITH URL PARAMETERS (FIXED)
 # ============================================================================
 
-# 1. FIRST, define ALL default session state variables.
-#    This ensures they exist before we try to use them.
+# Initialize critical session state variables FIRST
 if "user_id" not in st.session_state:
-    st.session_state.user_id = "Guest"
+    # Check if user is in URL first (persisted from previous session)
+    if 'user' in st.query_params:
+        st.session_state.user_id = st.query_params['user']
+    else:
+        st.session_state.user_id = ""
+
+if "responses" not in st.session_state:
+    st.session_state.responses = {}
 if "current_session" not in st.session_state:
     st.session_state.current_session = 0
 if "current_question" not in st.session_state:
     st.session_state.current_question = 0
-if "responses" not in st.session_state:
-    st.session_state.responses = {}
 if "session_conversations" not in st.session_state:
     st.session_state.session_conversations = {}
 if "editing" not in st.session_state:
@@ -375,9 +253,8 @@ if "editing_word_target" not in st.session_state:
 if "confirming_clear" not in st.session_state:
     st.session_state.confirming_clear = None
 
-# 2. SECOND, ensure the main data structures are fully built.
-#    This runs only if 'responses' was just created empty.
-if st.session_state.responses == {}:
+# Initialize empty structures for each session if needed
+if not st.session_state.responses:
     for session in SESSIONS:
         session_id = session["id"]
         st.session_state.responses[session_id] = {
@@ -388,35 +265,93 @@ if st.session_state.responses == {}:
             "word_target": session.get("word_target", 500)
         }
         st.session_state.session_conversations[session_id] = {}
-
-    # Load default word targets from the database
-    word_targets = load_word_targets()
-    for session_id, target in word_targets.items():
-        if session_id in st.session_state.responses:
-            st.session_state.responses[session_id]["word_target"] = target
-
-# 3. THIRD and MOST IMPORTANT: Load the user's personal data.
-#    This check must come AFTER 'user_id' is guaranteed to exist.
-if st.session_state.user_id != "Guest":
-    user_data = load_user_data(st.session_state.user_id)
     
-    # Load responses into session state
-    for session_id, questions in user_data.get("responses", {}).items():
-        session_id_int = int(session_id)
-        if session_id_int in st.session_state.responses:
-            st.session_state.responses[session_id_int]["questions"] = questions
-    
-    # Load conversations into session state
-    for session_id, conversations in user_data.get("conversations", {}).items():
-        session_id_int = int(session_id)
-        if session_id_int in st.session_state.session_conversations:
-            st.session_state.session_conversations[session_id_int] = conversations
+    # Load word targets from database
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT session_id, word_target FROM word_targets")
+        for session_id, word_target in cursor.fetchall():
+            if session_id in st.session_state.responses:
+                st.session_state.responses[session_id]["word_target"] = word_target
+        conn.close()
+    except:
+        pass
+
+# NOW load user data if user_id is set
+if st.session_state.user_id and st.session_state.user_id != "":
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT session_id, question, answer 
+            FROM responses 
+            WHERE user_id = ?
+        """, (st.session_state.user_id,))
+        
+        for session_id, question, answer in cursor.fetchall():
+            if session_id not in st.session_state.responses:
+                continue
+            st.session_state.responses[session_id]["questions"][question] = {
+                "answer": answer,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        conn.close()
+    except:
+        pass
 
 # ============================================================================
 # SECTION 6: CORE APPLICATION FUNCTIONS
 # ============================================================================
+def save_response(session_id, question, answer):
+    user_id = st.session_state.user_id
+    
+    if not user_id or user_id == "":
+        return  # Don't save if no user is set
+    
+    if session_id not in st.session_state.responses:
+        st.session_state.responses[session_id] = {
+            "title": SESSIONS[session_id-1]["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False,
+            "word_target": SESSIONS[session_id-1].get("word_target", 500)
+        }
+    
+    st.session_state.responses[session_id]["questions"][question] = {
+        "answer": answer,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO responses 
+            (user_id, session_id, question, answer) 
+            VALUES (?, ?, ?, ?)
+        """, (user_id, session_id, question, answer))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+def save_word_target(session_id, word_target):
+    try:
+        conn = sqlite3.connect('life_story.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO word_targets 
+            (session_id, word_target) 
+            VALUES (?, ?)
+        """, (session_id, word_target))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
 def calculate_author_word_count(session_id):
-    """Calculate total words for a session"""
     total_words = 0
     session_data = st.session_state.responses.get(session_id, {})
     
@@ -427,7 +362,6 @@ def calculate_author_word_count(session_id):
     return total_words
 
 def get_progress_info(session_id):
-    """Get progress information for a session"""
     current_count = calculate_author_word_count(session_id)
     target = st.session_state.responses[session_id].get("word_target", 500)
     
@@ -531,69 +465,81 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 10: SIDEBAR - USER PROFILE AND SETTINGS (FIXED)
+# SECTION 10: USER PROMPT - ONLY SHOW IF NO USER IS SET
+# ============================================================================
+# This section appears ONLY when no user is logged in
+if not st.session_state.user_id or st.session_state.user_id == "":
+    st.title("👤 Welcome to Your Biography Builder")
+    
+    with st.form("user_setup_form"):
+        st.write("**Please enter your name to begin or continue your biography:**")
+        new_user = st.text_input("Your Name:", key="new_user_input")
+        submit_user = st.form_submit_button("Start / Continue My Biography")
+        
+        if submit_user and new_user and new_user.strip() != "":
+            st.session_state.user_id = new_user.strip()
+            # Save to URL for persistence
+            st.query_params['user'] = st.session_state.user_id
+            # Load any existing data for this user
+            try:
+                conn = sqlite3.connect('life_story.db')
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT session_id, question, answer 
+                    FROM responses 
+                    WHERE user_id = ?
+                """, (st.session_state.user_id,))
+                
+                for session_id, question, answer in cursor.fetchall():
+                    if session_id not in st.session_state.responses:
+                        continue
+                    st.session_state.responses[session_id]["questions"][question] = {
+                        "answer": answer,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                
+                conn.close()
+            except:
+                pass
+            
+            st.rerun()
+    
+    # Show some info about the app
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        **📝 How it works:**
+        1. Enter your name above
+        2. Your progress is saved automatically
+        3. Return anytime - just enter the same name
+        4. Export your completed biography
+        """)
+    with col2:
+        st.markdown("""
+        **🔒 Your data is safe:**
+        • Stored in your personal database
+        • Accessible only with your name
+        • Export anytime to your secure vault
+        """)
+    
+    # Don't show the rest of the app
+    st.stop()
+
+# ============================================================================
+# SECTION 11: SIDEBAR - USER PROFILE AND SETTINGS
 # ============================================================================
 with st.sidebar:
     st.header("👤 Your Profile")
     
-    # User ID input with proper loading
-    new_user_id = st.text_input("Your Name:", value=st.session_state.user_id, key="user_id_input")
+    # Show current user - can't change it here
+    st.success(f"✓ **Signed in as:** {st.session_state.user_id}")
     
-    if new_user_id != st.session_state.user_id:
-        # Save current data first if switching from existing user
-        if st.session_state.user_id != "Guest":
-            # Data is already saved automatically when entered
-            pass
-        
-        # Switch to new user
-        st.session_state.user_id = new_user_id
-        
-        # Clear current session state
-        for session in SESSIONS:
-            session_id = session["id"]
-            st.session_state.responses[session_id] = {
-                "title": session["title"],
-                "questions": {},
-                "summary": "",
-                "completed": False,
-                "word_target": session.get("word_target", 500)
-            }
-            st.session_state.session_conversations[session_id] = {}
-        
-        # Load word targets
-        word_targets = load_word_targets()
-        for session_id, target in word_targets.items():
-            if session_id in st.session_state.responses:
-                st.session_state.responses[session_id]["word_target"] = target
-        
-        # Load user data if not Guest
-        if new_user_id != "Guest":
-            user_data = load_user_data(new_user_id)
-            
-            # Load responses
-            for session_id, questions in user_data.get("responses", {}).items():
-                if int(session_id) in st.session_state.responses:
-                    st.session_state.responses[int(session_id)]["questions"] = questions
-            
-            # Load conversations
-            for session_id, conversations in user_data.get("conversations", {}).items():
-                if int(session_id) in st.session_state.session_conversations:
-                    st.session_state.session_conversations[int(session_id)] = conversations
-        
+    # Option to change user
+    if st.button("🔄 Switch User"):
+        st.session_state.user_id = ""
+        st.query_params.clear()
         st.rerun()
-    
-    # Show current user info
-    if st.session_state.user_id != "Guest":
-        st.success(f"✓ Signed in as: **{st.session_state.user_id}**")
-        
-        # Show stats
-        total_responses = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
-        total_words = sum(calculate_author_word_count(s["id"]) for s in SESSIONS)
-        
-        st.metric("Total Responses", total_responses)
-        st.metric("Total Words", total_words)
-    else:
-        st.warning("Enter your name to save your progress")
     
     st.divider()
     st.header("✍️ Interview Style")
@@ -624,7 +570,7 @@ with st.sidebar:
         st.info("Standard mode active")
     
     # ============================================================================
-    # SECTION 10A: SIDEBAR - SESSION NAVIGATION
+    # SECTION 11A: SIDEBAR - SESSION NAVIGATION
     # ============================================================================
     st.divider()
     st.header("📖 Sessions")
@@ -658,7 +604,7 @@ with st.sidebar:
             st.rerun()
     
     # ============================================================================
-    # SECTION 10B: SIDEBAR - NAVIGATION CONTROLS
+    # SECTION 11B: SIDEBAR - NAVIGATION CONTROLS
     # ============================================================================
     st.divider()
     st.subheader("Topic Navigation")
@@ -706,35 +652,63 @@ with st.sidebar:
     st.divider()
     
     # ============================================================================
-    # SECTION 10C: SIDEBAR - EXPORT OPTIONS
+    # SECTION 11C: SIDEBAR - EXPORT OPTIONS
     # ============================================================================
     st.subheader("📤 Export Options")
     
     total_answers = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
     st.caption(f"Total answers: {total_answers}")
     
-    if st.button("📥 Export Current Progress", type="primary"):
-        if total_answers > 0:
-            export_data = {"sessions": {}}
-            for session in SESSIONS:
-                session_id = session["id"]
-                session_data = st.session_state.responses.get(session_id, {})
-                if session_data.get("questions"):
-                    export_data["sessions"][session_id] = session_data
-            
-            st.download_button(
-                label="Download as JSON",
-                data=json.dumps(export_data, indent=2),
-                file_name=f"LifeStory_{st.session_state.user_id}.json",
-                mime="application/json"
-            )
-        else:
-            st.warning("No responses to export yet!")
+    # Prepare data for export
+    export_data = {}
+    for session in SESSIONS:
+        session_id = session["id"]
+        session_data = st.session_state.responses.get(session_id, {})
+        if session_data.get("questions"):
+            export_data[str(session_id)] = {
+                "title": session["title"],
+                "questions": session_data["questions"]
+            }
+    
+    # Create JSON data
+    if export_data:
+        json_data = json.dumps({
+            "user": st.session_state.user_id,
+            "stories": export_data,
+            "export_date": datetime.now().isoformat()
+        }, indent=2)
+        
+        # Encode the data for URL
+        import base64
+        encoded_data = base64.b64encode(json_data.encode()).decode()
+        
+        # Create URL with the data (UPDATE THIS URL TO YOUR PUBLISHER APP)
+        publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
+        publisher_url = f"{publisher_base_url}?data={encoded_data}"
+        
+        # Download button
+        st.download_button(
+            label="📥 Download as JSON",
+            data=json_data,
+            file_name=f"LifeStory_{st.session_state.user_id}.json",
+            mime="application/json",
+            use_container_width=True
+        )
+        
+        # Link to publisher
+        st.link_button(
+            "🖨️ Publish Biography",
+            publisher_url,
+            use_container_width=True,
+            help="Format your biography professionally"
+        )
+    else:
+        st.warning("No responses to export yet!")
     
     st.divider()
     
     # ============================================================================
-    # SECTION 10D: SIDEBAR - DANGEROUS ACTIONS WITH CONFIRMATION
+    # SECTION 11D: SIDEBAR - DANGEROUS ACTIONS WITH CONFIRMATION
     # ============================================================================
     st.subheader("⚠️ Clear Data")
     
@@ -752,14 +726,11 @@ with st.sidebar:
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM responses WHERE user_id = ? AND session_id = ?", 
                                   (st.session_state.user_id, current_session_id))
-                    cursor.execute("DELETE FROM conversations WHERE user_id = ? AND session_id = ?", 
-                                  (st.session_state.user_id, current_session_id))
                     conn.commit()
                     conn.close()
                     
                     # Clear from session state
                     st.session_state.responses[current_session_id]["questions"] = {}
-                    st.session_state.session_conversations[current_session_id] = {}
                     st.session_state.confirming_clear = None
                     st.rerun()
                 except Exception as e:
@@ -783,8 +754,6 @@ with st.sidebar:
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM responses WHERE user_id = ?", 
                                   (st.session_state.user_id,))
-                    cursor.execute("DELETE FROM conversations WHERE user_id = ?", 
-                                  (st.session_state.user_id,))
                     conn.commit()
                     conn.close()
                     
@@ -792,7 +761,6 @@ with st.sidebar:
                     for session in SESSIONS:
                         session_id = session["id"]
                         st.session_state.responses[session_id]["questions"] = {}
-                        st.session_state.session_conversations[session_id] = {}
                     st.session_state.confirming_clear = None
                     st.rerun()
                 except Exception as e:
@@ -816,7 +784,7 @@ with st.sidebar:
                 st.rerun()
 
 # ============================================================================
-# SECTION 11: MAIN CONTENT - SESSION HEADER
+# SECTION 12: MAIN CONTENT - SESSION HEADER
 # ============================================================================
 current_session = SESSIONS[st.session_state.current_session]
 current_session_id = current_session["id"]
@@ -874,10 +842,10 @@ if total_topics > 0:
     st.caption(f"📝 Topics explored: {topics_answered}/{total_topics} ({topic_progress*100:.0f}%)")
 
 # ============================================================================
-# SECTION 12: CONVERSATION DISPLAY AND CHAT INPUT (FIXED)
+# SECTION 13: CONVERSATION DISPLAY AND CHAT INPUT
 # ============================================================================
-# Get or create conversation for this question
 current_session_id = current_session["id"]
+current_question_text = current_session["questions"][st.session_state.current_question]
 
 if current_session_id not in st.session_state.session_conversations:
     st.session_state.session_conversations[current_session_id] = {}
@@ -948,8 +916,7 @@ for i, message in enumerate(conversation):
                         st.session_state.session_conversations[current_session_id][current_question_text] = conversation
                         
                         # Save to database
-                        save_response(st.session_state.user_id, current_session_id, current_question_text, new_text)
-                        save_conversation(st.session_state.user_id, current_session_id, current_question_text, conversation)
+                        save_response(current_session_id, current_question_text, new_text)
                         
                         # Update session state
                         st.session_state.responses[current_session_id]["questions"][current_question_text] = {
@@ -1042,8 +1009,7 @@ with input_container:
         st.session_state.session_conversations[current_session_id][current_question_text] = conversation
         
         # Save to database
-        save_response(st.session_state.user_id, current_session_id, current_question_text, user_input)
-        save_conversation(st.session_state.user_id, current_session_id, current_question_text, conversation)
+        save_response(current_session_id, current_question_text, user_input)
         
         # Update session state
         st.session_state.responses[current_session_id]["questions"][current_question_text] = {
@@ -1054,7 +1020,7 @@ with input_container:
         st.rerun()
 
 # ============================================================================
-# SECTION 13: WORD PROGRESS INDICATOR
+# SECTION 14: WORD PROGRESS INDICATOR
 # ============================================================================
 st.divider()
 
@@ -1111,7 +1077,7 @@ if st.session_state.editing_word_target:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 14: FOOTER WITH STATISTICS
+# SECTION 15: FOOTER WITH STATISTICS
 # ============================================================================
 st.divider()
 col1, col2, col3 = st.columns(3)
@@ -1127,10 +1093,10 @@ with col3:
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 
 # ============================================================================
-# SECTION 15: SIMPLE PUBLISH & VAULT SECTION
+# SECTION 16: SIMPLE PUBLISH & VAULT SECTION
 # ============================================================================
 st.divider()
-st.subheader("📘 Publish Your Biography")
+st.subheader("📘 Publish & Save Your Biography")
 
 # Get the current user's data
 current_user = st.session_state.get('user_id', '')
@@ -1146,7 +1112,7 @@ for session in SESSIONS:
             "questions": session_data["questions"]
         }
 
-if current_user and current_user != "Guest" and export_data:
+if current_user and current_user != "" and export_data:
     # Count total stories
     total_stories = sum(len(session['questions']) for session in export_data.values())
     
@@ -1161,7 +1127,7 @@ if current_user and current_user != "Guest" and export_data:
     import base64
     encoded_data = base64.b64encode(json_data.encode()).decode()
     
-    # Create URL for the publisher
+    # Create URL for the publisher (UPDATE THIS TO YOUR ACTUAL PUBLISHER URL)
     publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
     publisher_url = f"{publisher_base_url}?data={encoded_data}"
     
@@ -1192,7 +1158,7 @@ if current_user and current_user != "Guest" and export_data:
         2. Download the formatted PDF
         3. Save it to your secure vault
         
-        **[💾 Go to Secure Vault](https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app/)**
+        **[💾 Go to Secure Vault](https://digital-legacy-vault.streamlit.app)**
         
         Your vault preserves important documents forever.
         """)
@@ -1208,10 +1174,16 @@ if current_user and current_user != "Guest" and export_data:
         )
         st.caption("Use this if the publisher link doesn't work")
         
-elif current_user and current_user != "Guest":
+elif current_user and current_user != "":
     st.info("📝 **Answer some questions first!** Come back here after saving some stories.")
 else:
-    st.info("👤 **Enter your name in the sidebar to begin**")
+    st.info("👤 **Enter your name to begin**")
+
+# ============================================================================
+# FOOTER
+# ============================================================================
+st.markdown("---")
+st.caption(f"DeeperVault UK Legacy Builder • User: {st.session_state.user_id} • Data automatically saved to your personal database")
 
 
 
