@@ -1152,3 +1152,24 @@ else:
     st.info("👤 **Please enter your name in the sidebar to begin.**")
 
 st.caption("Your data stays private - it's encoded in the URL and never stored on our servers.")
+# ============================================================================
+# SECTION: CONNECT TO YOUR SECURE LEGACY VAULT
+# ============================================================================
+st.divider()
+st.subheader("🔐 Store Your Biography Securely")
+
+# Replace this with your actual vault app URL
+VAULT_APP_URL = "https://digital-legacy-vault.streamlit.app"
+
+st.markdown(f"""
+**Your biography is complete!**
+
+Preserve it alongside your legal documents, photos, and important files in your personal, encrypted vault.
+
+**[➡️ Go to Secure Legacy Vault]({VAULT_APP_URL})**
+
+*Features of your vault:*
+*   **Zero-Knowledge Encryption:** Your password never leaves your device.
+*   **Organized Storage:** Categorize documents (Legal, Medical, Personal, Biography).
+*   **Future-Proof:** Designed to preserve your legacy for generations.
+""")
