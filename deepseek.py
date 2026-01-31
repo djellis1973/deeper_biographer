@@ -278,8 +278,15 @@ if not st.session_state.responses:
     except:
         pass
 
-# NOW load user data if user_id is set
-if st.session_state.user_id and st.session_state.user_id != "":
+# ============================================================================
+# CRITICAL FIX: LOAD USER DATA AFTER INITIALIZATION
+# ============================================================================
+# This check ensures we only load data ONCE per session initialization
+if "data_loaded" not in st.session_state:
+    st.session_state.data_loaded = False
+
+# Load user data if user_id is set AND data hasn't been loaded yet
+if st.session_state.user_id and st.session_state.user_id != "" and not st.session_state.data_loaded:
     try:
         conn = sqlite3.connect('life_story.db')
         cursor = conn.cursor()
@@ -287,8 +294,14 @@ if st.session_state.user_id and st.session_state.user_id != "":
             SELECT session_id, question, answer 
             FROM responses 
             WHERE user_id = ?
+            ORDER BY session_id, timestamp
         """, (st.session_state.user_id,))
         
+        # Clear any existing data first
+        for session_id in st.session_state.responses:
+            st.session_state.responses[session_id]["questions"] = {}
+        
+        # Load saved answers
         for session_id, question, answer in cursor.fetchall():
             if session_id not in st.session_state.responses:
                 continue
@@ -298,9 +311,16 @@ if st.session_state.user_id and st.session_state.user_id != "":
             }
         
         conn.close()
-    except:
-        pass
-
+        
+        # Mark data as loaded to prevent reloading
+        st.session_state.data_loaded = True
+        
+        # Optional: Show confirmation
+        # st.success(f"Loaded saved answers for {st.session_state.user_id}")
+        
+    except Exception as e:
+        # If table doesn't exist yet, that's OK
+        st.session_state.data_loaded = True
 # ============================================================================
 # SECTION 6: CORE APPLICATION FUNCTIONS
 # ============================================================================
@@ -1184,6 +1204,7 @@ else:
 # ============================================================================
 st.markdown("---")
 st.caption(f"DeeperVault UK Legacy Builder • User: {st.session_state.user_id} • Data automatically saved to your personal database")
+
 
 
 
