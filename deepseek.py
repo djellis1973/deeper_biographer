@@ -1176,119 +1176,133 @@ Preserve it alongside your legal documents, photos, and important files in your 
 """)
 
 # ============================================================================
-# SECTION: DIRECT VAULT UPLOAD (One-Click Method)
+# SECTION: PUBLISH & VAULT SAVE (SIMPLE & WORKING)
 # ============================================================================
 st.divider()
-st.subheader("🚀 Save to Your Secure Vault")
+st.subheader("📖 Publish & Save Your Biography")
 
-# Your actual vault URL - CHANGE THIS TO YOUR REAL VAULT URL!
-VAULT_APP_URL = "https://digital-legacy-vault-vwvd4eclaeq4hxtcbbshr2.streamlit.app"  # ⬅️ YOUR REAL URL
+# Get the current user's data
+current_user = st.session_state.get('user_id', '')
+export_data = {}
 
-# Get user name for filename
-user_name = st.session_state.get('user_id', 'User').replace(' ', '_')
-filename = f"{user_name}_Life_Story.txt"
+# Prepare data for export
+for session in SESSIONS:
+    session_id = session["id"]
+    session_data = st.session_state.responses.get(session_id, {})
+    if session_data.get("questions"):
+        export_data[str(session_id)] = {
+            "title": session["title"],
+            "questions": session_data["questions"]
+        }
 
-# Create the pre-filled vault link
-import urllib.parse
-encoded_filename = urllib.parse.quote(filename)
-prefilled_vault_link = f"{VAULT_APP_URL}?prefill_name={encoded_filename}&category=Biography&source=biography_app"
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("#### 📦 Prepare Your Biography")
+if current_user and current_user != "Guest" and export_data:
+    # Count total stories
+    total_stories = sum(len(session['questions']) for session in export_data.values())
     
-    # Check if we have stories to export
-    if export_data and total_stories > 0:
-        # Create a simple text version of the biography
-        biography_text = f"Life Story of {user_name}\n"
-        biography_text += "=" * 50 + "\n\n"
+    # Create JSON data for the publisher
+    json_data = json.dumps({
+        "user": current_user,
+        "stories": export_data,
+        "export_date": datetime.now().isoformat()
+    }, indent=2)
+    
+    # Encode the data for URL
+    import base64
+    encoded_data = base64.b64encode(json_data.encode()).decode()
+    
+    # Create URL for the publisher
+    publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
+    publisher_url = f"{publisher_base_url}?data={encoded_data}"
+    
+    st.success(f"✅ **{total_stories} stories ready!**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🖨️ Step 1: Create Your Book")
+        st.markdown(f"""
+        Generate a professionally formatted biography from your **{total_stories} stories**.
         
-        for session_id, session_data in export_data.items():
-            biography_text += f"## {session_data.get('title', f'Session {session_id}')}\n\n"
-            for question, answer_data in session_data.get('questions', {}).items():
-                biography_text += f"### {question}\n"
-                biography_text += f"{answer_data.get('answer', '')}\n\n"
+        **Features:**
+        • Beautiful cover page
+        • Table of contents
+        • Each session formatted
+        • Ready to print or share
+        """)
         
-        # Download button
-        st.download_button(
-            label="📥 Download Biography (.txt)",
-            data=biography_text,
-            file_name=filename,
-            mime="text/plain",
+        # Button to open publisher
+        st.link_button(
+            "📘 Create Beautiful Biography",
+            publisher_url,
             type="primary",
             use_container_width=True,
-            help="Download your complete biography as a text file"
+            help="Opens the biography publisher to format your stories"
         )
         
-        st.caption(f"Contains {total_stories} stories, ready for your vault.")
-        
-        # Show what's included
-        with st.expander("📋 Preview Biography Contents", expanded=False):
-            st.write(f"**Filename:** `{filename}`")
-            st.write(f"**Total Stories:** {total_stories}")
-            st.write(f"**User:** {user_name}")
-            st.write("**Contains sessions:**")
-            for session_id in export_data.keys():
-                st.write(f"- {export_data[session_id].get('title', f'Session {session_id}')}")
-    else:
-        st.warning("No stories to save yet.")
-        st.info("Complete some interview questions first!")
-        biography_text = ""
-
-with col2:
-    st.markdown("#### 🔒 Secure Storage Instructions")
+        # Also show as download for backup
+        with st.expander("📥 Download Raw Data (Backup)"):
+            st.download_button(
+                label="Download Stories as JSON",
+                data=json_data,
+                file_name=f"{current_user}_stories.json",
+                mime="application/json",
+                use_container_width=True
+            )
+            st.caption("Use this if the link doesn't work")
     
-    if export_data and total_stories > 0:
-        st.success(f"✅ **{total_stories} stories ready to save!**")
+    with col2:
+        st.markdown("#### 🔐 Step 2: Save to Your Vault")
+        st.markdown("""
+        **After creating your beautiful biography:**
         
-        st.markdown(f"""
-        **How to save your biography:**
+        1. **Generate** your book (click button on left)
+        2. **Download** the formatted PDF from the publisher
+        3. **Save** it to your secure vault
         
-        1. **Click the download button** (← left) to save your file
-        2. **[Open your secure vault]({prefilled_vault_link})**
-        3. **Upload** the downloaded file when prompted
-        
-        **The vault will automatically:**
-        • Suggest filename: `{filename}`
-        • Select "Biography" category
-        • Add helpful notes
-        
-        ⚠️ **Important:** Keep your vault password safe! Without it, your encrypted files cannot be recovered.
+        Your vault is where all important documents live forever.
         """)
         
-        # Direct link to vault
+        # Simple link to vault
+        vault_url = "https://digital-legacy-vault.streamlit.app"
         st.link_button(
-            "🔗 Open My Secure Vault",
-            prefilled_vault_link,
+            "💾 Go to Secure Vault",
+            vault_url,
             use_container_width=True,
-            help="Opens your vault app in a new tab"
+            help="Opens your secure digital legacy vault"
         )
         
-        # Show the link for debugging
-        with st.expander("🔍 View vault link details", expanded=False):
-            st.code(prefilled_vault_link)
-            st.caption("This link opens your vault with pre-filled information. Save it as a bookmark!")
-    else:
-        st.info("📝 **Complete your biography first!**")
-        st.markdown("""
-        Once you've answered some questions, you'll see:
-        1. A download button for your biography
-        2. Instructions for saving to your vault
-        3. A direct link to your secure vault
-        """)
+        st.caption("⚠️ Keep your vault password safe!")
+    
+    # Preview of what will be included
+    with st.expander("📋 Preview Your Stories", expanded=False):
+        st.write(f"**User:** {current_user}")
+        st.write(f"**Total Stories:** {total_stories}")
+        st.write("**Sessions included:**")
+        for session_id, session_data in export_data.items():
+            session_title = session_data.get('title', f'Session {session_id}')
+            story_count = len(session_data.get('questions', {}))
+            st.write(f"• **{session_title}**: {story_count} stories")
+        
+elif current_user and current_user != "Guest":
+    st.info("📝 **Answer some questions first!** Your biography will appear here once you save some stories.")
+    st.markdown("""
+    **How it works:**
+    1. Answer interview questions (topics above)
+    2. Your stories are saved automatically
+    3. Come back here to publish & save
+    """)
+else:
+    st.info("👤 **Please enter your name in the sidebar to begin.**")
 
-# Optional: Show security info
 st.markdown("---")
 st.markdown("""
-### 🛡️ About Your Secure Vault
+### 🛡️ Your Secure Legacy Vault
+Your **Digital Legacy Vault** is where you store important documents forever:
 
-Your **Digital Legacy Vault** is a zero-knowledge encrypted storage system:
+- **Zero-Knowledge Encryption:** Only you can read your files
+- **Biography Section:** Special category for life stories
+- **Future Access:** Share with loved ones when needed
+- **Permanent Storage:** Preserve your legacy for generations
 
-- **Military-Grade Encryption:** Your files are encrypted before they leave your device
-- **Biography Category:** Special section designed for life stories
-- **Future Access:** Share access instructions with loved ones
-- **No Data Mining:** We never read or analyze your personal stories
-
-*Your biography deserves the highest level of protection.*
+*Once you create your beautiful biography, save it here for safekeeping.*
 """)
