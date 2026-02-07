@@ -151,6 +151,49 @@ def create_beautiful_biography(stories_data):
     """Create a professionally formatted biography with AI-inspired formatting"""
     user_name = stories_data.get("user", "Unknown")
     user_profile = stories_data.get("user_profile", {})
+
+    # Personal Information
+    if user_profile:
+        bio_text += "PERSONAL INFORMATION\n"
+        bio_text += "-" * 40 + "\n"
+        if user_profile.get('birthdate'):
+            bio_text += f"Date of Birth: {user_profile.get('birthdate')}\n"
+        if user_profile.get('gender'):
+            bio_text += f"Gender: {user_profile.get('gender')}\n"
+        bio_text += "\n"
+    
+    # ======= ADD THIS SECTION FOR IMAGES =======
+    if images_data:
+        bio_text += "PHOTO REFERENCES\n"
+        bio_text += "-" * 40 + "\n"
+        bio_text += f"This biography includes {len(images_data)} photos:\n\n"
+        
+        # Group by session
+        images_by_session = {}
+        for img in images_data:
+            session_id = str(img.get("session_id", "0"))
+            images_by_session.setdefault(session_id, []).append(img)
+        
+        for session_id, images in images_by_session.items():
+            # Find session title
+            session_title = f"Session {session_id}"
+            for sid, sdata in stories_dict.items():
+                if str(sid) == session_id:
+                    session_title = sdata.get("title", session_title)
+                    break
+            
+            bio_text += f"{session_title}:\n"
+            for img in images[:5]:  # First 5 per session
+                bio_text += f"  • {img.get('original_filename', 'Photo')}"
+                if img.get('description'):
+                    bio_text += f" - {img.get('description')[:60]}"
+                bio_text += "\n"
+            bio_text += "\n"
+        
+        bio_text += "\n"
+    # ======= END OF IMAGE SECTION =======
+
+    
     stories_dict = stories_data.get("stories", {})
     summary = stories_data.get("summary", {})
         # FIX: Try multiple possible locations for the image data
