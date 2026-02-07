@@ -1,9 +1,16 @@
-# biography_publisher.py - FIXED VERSION WITH BALLOONS
+# biography_publisher.py - COMPLETE FIXED VERSION WITH DOCX EXPORT
 import streamlit as st
 import json
 import base64
 from datetime import datetime
 import time
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+import zipfile
+import tempfile
+import os
 
 # Page setup
 st.set_page_config(page_title="Biography Publisher", layout="wide")
@@ -121,7 +128,7 @@ def show_celebration():
     """, unsafe_allow_html=True)
 
 def decode_stories_from_url():
-    """Extract stories from URL parameter - FIXED FOR COMPATIBILITY"""
+    """Extract stories from URL parameter"""
     try:
         # Try new method first (Streamlit 1.28+)
         if hasattr(st, 'query_params'):
@@ -149,70 +156,32 @@ def decode_stories_from_url():
 
 def create_beautiful_biography(stories_data):
     """Create a professionally formatted biography with AI-inspired formatting"""
-    user_name = stories_data.get("user", "Unknown")
+    # Initialize bio_text at the VERY BEGINNING
+    bio_text = ""
+    
+    # Get user info FIRST
     user_profile = stories_data.get("user_profile", {})
-
-    # Personal Information
-    if user_profile:
-        bio_text += "PERSONAL INFORMATION\n"
-        bio_text += "-" * 40 + "\n"
-        if user_profile.get('birthdate'):
-            bio_text += f"Date of Birth: {user_profile.get('birthdate')}\n"
-        if user_profile.get('gender'):
-            bio_text += f"Gender: {user_profile.get('gender')}\n"
-        bio_text += "\n"
-    
-    # ======= ADD THIS SECTION FOR IMAGES =======
-    if images_data:
-        bio_text += "PHOTO REFERENCES\n"
-        bio_text += "-" * 40 + "\n"
-        bio_text += f"This biography includes {len(images_data)} photos:\n\n"
-        
-        # Group by session
-        images_by_session = {}
-        for img in images_data:
-            session_id = str(img.get("session_id", "0"))
-            images_by_session.setdefault(session_id, []).append(img)
-        
-        for session_id, images in images_by_session.items():
-            # Find session title
-            session_title = f"Session {session_id}"
-            for sid, sdata in stories_dict.items():
-                if str(sid) == session_id:
-                    session_title = sdata.get("title", session_title)
-                    break
-            
-            bio_text += f"{session_title}:\n"
-            for img in images[:5]:  # First 5 per session
-                bio_text += f"  • {img.get('original_filename', 'Photo')}"
-                if img.get('description'):
-                    bio_text += f" - {img.get('description')[:60]}"
-                bio_text += "\n"
-            bio_text += "\n"
-        
-        bio_text += "\n"
-    # ======= END OF IMAGE SECTION =======
-
-    
-    stories_dict = stories_data.get("stories", {})
-    summary = stories_data.get("summary", {})
-        # FIX: Try multiple possible locations for the image data
-    images_data = []
-    if "images" in stories_data:
-        images_data = stories_data.get("images", [])
-    elif "summary" in stories_data and "images" in stories_data["summary"]:
-        # Sometimes images are inside the summary object
-        images_data = stories_data["summary"].get("images", [])
     
     # Get display name
     if user_profile and 'first_name' in user_profile:
         first_name = user_profile.get('first_name', '')
         last_name = user_profile.get('last_name', '')
         display_name = f"{first_name} {last_name}".strip()
-        if not display_name:
-            display_name = user_name
     else:
-        display_name = user_name
+        display_name = stories_data.get("user", "Unknown")
+    
+    # Get stories
+    stories_dict = stories_data.get("stories", {})
+    
+    if not stories_dict:
+        return "No stories found to publish.", [], display_name, 0, 0, 0
+    
+    # Try multiple possible locations for the image data
+    images_data = []
+    if "images" in stories_data:
+        images_data = stories_data.get("images", [])
+    elif "summary" in stories_data and "images" in stories_data["summary"]:
+        images_data = stories_data["summary"].get("images", [])
     
     # Collect all stories
     all_stories = []
@@ -559,6 +528,125 @@ def create_html_biography(stories_data):
     
     return html, display_name
 
+def create_docx_biography(stories_data):
+    """Create a DOCX version of the biography"""
+    # Get the text biography first
+    bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(stories_data)
+    
+    # Create a new Document
+    doc = Document()
+    
+    # Add a title
+    title = doc.add_heading(f"{author_name}'s Biography", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Add subtitle
+    subtitle = doc.add_paragraph(f"Created on {datetime.now().strftime('%B %d, %Y')}")
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_page_break()
+    
+    # Add table of contents
+    doc.add_heading('Table of Contents', level=1)
+    
+    # Group stories by session/chapter
+    chapters = {}
+    for story in all_stories:
+        chapter_title = story['session']
+        if chapter_title not in chapters:
+            chapters[chapter_title] = []
+        chapters[chapter_title].append(story)
+    
+    # Add chapter headings to TOC
+    for i, (chapter_title, stories) in enumerate(chapters.items(), 1):
+        doc.add_paragraph(f"Chapter {i}: {chapter_title}")
+    
+    doc.add_page_break()
+    
+    # Add each chapter
+    for i, (chapter_title, stories) in enumerate(chapters.items(), 1):
+        doc.add_heading(f"Chapter {i}: {chapter_title}", level=1)
+        
+        for j, story in enumerate(stories, 1):
+            doc.add_heading(f"Story {j}: {story['question']}", level=2)
+            
+            # Add the story text
+            for paragraph in story['answer'].split('\n'):
+                if paragraph.strip():
+                    p = doc.add_paragraph(paragraph.strip())
+                    p.paragraph_format.space_after = Pt(12)
+            
+            # Add story date if available
+            if story.get('date'):
+                date_para = doc.add_paragraph(f"Recorded: {story['date']}")
+                date_para.style = 'Emphasis'
+            
+            doc.add_paragraph()  # Add space between stories
+    
+    # Add image references if available
+    images_data = stories_data.get("images", [])
+    if images_data:
+        doc.add_page_break()
+        doc.add_heading('Photo References', level=1)
+        
+        # Group images by session
+        images_by_session = {}
+        for img in images_data:
+            session_id = str(img.get("session_id", "0"))
+            images_by_session.setdefault(session_id, []).append(img)
+        
+        # Add image references
+        for session_id, images in images_by_session.items():
+            # Find session title
+            session_title = f"Session {session_id}"
+            for story in all_stories:
+                if str(story.get("session_id")) == session_id:
+                    session_title = story['session']
+                    break
+            
+            doc.add_heading(session_title, level=2)
+            
+            for img in images:
+                item = doc.add_paragraph(style='List Bullet')
+                runner = item.add_run(f"{img.get('original_filename', 'Photo')}")
+                runner.bold = True
+                
+                if img.get('description'):
+                    item.add_run(f": {img.get('description')}")
+    
+    # Add statistics page
+    doc.add_page_break()
+    doc.add_heading('Biography Statistics', level=1)
+    
+    stats = doc.add_table(rows=5, cols=2)
+    stats.style = 'Light Grid'
+    
+    # Fill the table
+    cells = [
+        ["Total Stories:", str(story_num)],
+        ["Total Chapters:", str(chapter_num)],
+        ["Total Words:", f"{total_words:,}"],
+        ["Photo References:", str(len(images_data)) if images_data else "0"],
+        ["Compiled on:", datetime.now().strftime('%B %d, %Y at %I:%M %p')]
+    ]
+    
+    for i, row in enumerate(stats.rows):
+        for j, cell in enumerate(row.cells):
+            cell.text = cells[i][j]
+    
+    # Save to a temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+    doc.save(temp_file.name)
+    
+    # Read the file content
+    with open(temp_file.name, 'rb') as f:
+        docx_content = f.read()
+    
+    # Clean up
+    os.unlink(temp_file.name)
+    
+    return docx_content, author_name
+
 # ============================================================================
 # MAIN APP INTERFACE
 # ============================================================================
@@ -590,9 +678,6 @@ if stories_data:
                 st.success(f"✅ Welcome, **{user_profile.get('first_name')} {user_profile.get('last_name', '')}**!")
             else:
                 st.success(f"✅ Welcome, **{user_name}**!")
-            
-            if user_profile and user_profile.get('birthdate'):
-                st.caption(f"🎂 Born: {user_profile.get('birthdate')}")
         
         with col2:
             st.metric("Total Sessions", len(stories_data.get("stories", {})))
@@ -640,46 +725,58 @@ if stories_data:
                     st.metric("📷 Photo References", len(images_data))
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Download options
+            # Download options - INCLUDING DOCX
             st.subheader("📥 Download Your Biography")
             
-            col_dl1, col_dl2, col_dl3 = st.columns(3)
+            col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
             
             with col_dl1:
                 safe_name = author_name.replace(" ", "_")
                 st.download_button(
-                    label="📄 Download Text Version",
+                    label="📄 Text Version",
                     data=bio_text,
                     file_name=f"{safe_name}_Biography.txt",
                     mime="text/plain",
                     use_container_width=True,
                     type="primary"
                 )
-                st.caption("Plain text format - compatible with all devices")
+                st.caption("Plain text format")
             
             with col_dl2:
                 st.download_button(
-                    label="🌐 Download HTML Version",
+                    label="🌐 HTML Version",
                     data=html_bio,
                     file_name=f"{safe_name}_Biography.html",
                     mime="text/html",
                     use_container_width=True,
                     type="secondary"
                 )
-                st.caption("Beautiful web format - ready to print")
+                st.caption("Web format - ready to print")
             
-            with col_dl3:
+            with col_dl3:  # NEW DOCX BUTTON
+                docx_content, _ = create_docx_biography(stories_data)
+                st.download_button(
+                    label="📝 DOCX Version",
+                    data=docx_content,
+                    file_name=f"{safe_name}_Biography.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                    type="secondary"
+                )
+                st.caption("Microsoft Word format")
+            
+            with col_dl4:
                 # Markdown version
                 md_bio = bio_text.replace("=" * 70, "#" * 3)
                 st.download_button(
-                    label="📝 Download Markdown",
+                    label="📋 Markdown",
                     data=md_bio,
                     file_name=f"{safe_name}_Biography.md",
                     mime="text/markdown",
                     use_container_width=True,
                     type="secondary"
                 )
-                st.caption("Markdown format for easy editing")
+                st.caption("For easy editing")
             
             # Story preview
             with st.expander("📋 Preview Your Stories", expanded=False):
@@ -765,10 +862,13 @@ else:
                     
                     safe_name = author_name.replace(" ", "_")
                     
-                    col_dl1, col_dl2 = st.columns(2)
+                    # Create DOCX version too
+                    docx_content, _ = create_docx_biography(uploaded_data)
+                    
+                    col_dl1, col_dl2, col_dl3 = st.columns(3)
                     with col_dl1:
                         st.download_button(
-                            label="📥 Download Text Version",
+                            label="📥 Download Text",
                             data=bio_text,
                             file_name=f"{safe_name}_Biography.txt",
                             mime="text/plain"
@@ -776,10 +876,17 @@ else:
                     with col_dl2:
                         html_bio, _ = create_html_biography(uploaded_data)
                         st.download_button(
-                            label="🌐 Download HTML Version",
+                            label="🌐 Download HTML",
                             data=html_bio,
                             file_name=f"{safe_name}_Biography.html",
                             mime="text/html"
+                        )
+                    with col_dl3:
+                        st.download_button(
+                            label="📝 Download DOCX",
+                            data=docx_content,
+                            file_name=f"{safe_name}_Biography.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
                     
                     show_celebration()
