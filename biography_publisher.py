@@ -153,6 +153,7 @@ def create_beautiful_biography(stories_data):
     user_profile = stories_data.get("user_profile", {})
     stories_dict = stories_data.get("stories", {})
     summary = stories_data.get("summary", {})
+    images_data = stories_data.get("images", [])  # Get image data
     
     # Get display name
     if user_profile and 'first_name' in user_profile:
@@ -187,7 +188,8 @@ def create_beautiful_biography(stories_data):
                     "question": question,
                     "answer": answer,
                     "date": answer_data.get("timestamp", datetime.now().isoformat())[:10] 
-                             if isinstance(answer_data, dict) else datetime.now().isoformat()[:10]
+                             if isinstance(answer_data, dict) else datetime.now().isoformat()[:10],
+                    "session_id": session_id  # Add session_id for image matching
                 })
     
     if not all_stories:
@@ -210,6 +212,34 @@ def create_beautiful_biography(stories_data):
             bio_text += f"Date of Birth: {user_profile.get('birthdate')}\n"
         if user_profile.get('gender'):
             bio_text += f"Gender: {user_profile.get('gender')}\n"
+        bio_text += "\n"
+    
+    # Image References (if available)
+    if images_data:
+        bio_text += "PHOTO REFERENCES\n"
+        bio_text += "-" * 40 + "\n"
+        
+        # Group images by session
+        images_by_session = {}
+        for img in images_data:
+            session_id = str(img.get("session_id", "0"))
+            images_by_session.setdefault(session_id, []).append(img)
+        
+        # Add image references by session
+        for session_id, images in images_by_session.items():
+            session_title = "Unknown Session"
+            for story in all_stories:
+                if str(story.get("session_id")) == session_id:
+                    session_title = story["session"]
+                    break
+            
+            bio_text += f"\n{session_title}:\n"
+            for img in images[:5]:  # Max 5 images per session
+                bio_text += f"  • {img.get('original_filename', 'Photo')}"
+                if img.get('description'):
+                    bio_text += f": {img.get('description')[:80]}"
+                bio_text += "\n"
+        
         bio_text += "\n"
     
     # Table of Contents
@@ -283,6 +313,10 @@ def create_beautiful_biography(stories_data):
     # Calculate word count
     total_words = sum(len(story['answer'].split()) for story in all_stories)
     bio_text += f"• Total Words: {total_words:,}\n"
+    
+    # Add image count if available
+    if images_data:
+        bio_text += f"• Photo References: {len(images_data)}\n"
     
     # Find longest story
     if all_stories:
@@ -491,6 +525,7 @@ if stories_data:
     user_name = stories_data.get("user", "Unknown")
     user_profile = stories_data.get("user_profile", {})
     summary = stories_data.get("summary", {})
+    images_data = stories_data.get("images", [])  # Get image data
     
     # Count stories
     story_count = 0
@@ -515,6 +550,10 @@ if stories_data:
         
         with col3:
             st.metric("Total Stories", story_count)
+        
+        # Show image count if available
+        if images_data:
+            st.info(f"📷 Includes {len(images_data)} photo references")
         
         # Generate biography button
         if st.button("✨ Create Beautiful Biography", type="primary", use_container_width=True):
@@ -548,6 +587,8 @@ if stories_data:
                 st.metric("📝 Stories", story_num)
                 st.metric("📊 Total Words", f"{total_words:,}")
                 st.metric("📏 Biography Size", f"{len(bio_text):,} chars")
+                if images_data:
+                    st.metric("📷 Photo References", len(images_data))
                 st.markdown('</div>', unsafe_allow_html=True)
             
             # Download options
