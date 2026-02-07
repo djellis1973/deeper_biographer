@@ -153,7 +153,13 @@ def create_beautiful_biography(stories_data):
     user_profile = stories_data.get("user_profile", {})
     stories_dict = stories_data.get("stories", {})
     summary = stories_data.get("summary", {})
-    images_data = stories_data.get("images", [])  # Get image data
+        # FIX: Try multiple possible locations for the image data
+    images_data = []
+    if "images" in stories_data:
+        images_data = stories_data.get("images", [])
+    elif "summary" in stories_data and "images" in stories_data["summary"]:
+        # Sometimes images are inside the summary object
+        images_data = stories_data["summary"].get("images", [])
     
     # Get display name
     if user_profile and 'first_name' in user_profile:
