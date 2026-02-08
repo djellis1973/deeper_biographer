@@ -1,4 +1,4 @@
-# biography_publisher.py - FIXED VERSION WITH BALLOONS AND DOCX
+# biography_publisher.py - WITH CLEAN CONFETTI AND EXPORT OPTIONS
 import streamlit as st
 import json
 import base64
@@ -90,15 +90,22 @@ st.markdown("""
         font-size: 2.5em;
         margin-bottom: 0.5rem;
     }
+    .export-option {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 2px solid #e9ecef;
+        margin-bottom: 1.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 def show_celebration():
-    """Show celebration effects"""
+    """Show celebration effects - FIXED CONFETTI CODE"""
     # Balloons
     st.balloons()
     
-    # Confetti effect
+    # FIXED Confetti effect - no trailing JavaScript visible
     st.markdown("""
     <style>
     @keyframes confetti-fall {
@@ -110,13 +117,13 @@ def show_celebration():
         width: 10px;
         height: 10px;
         background: #ff6b6b;
-        animation: confetti-fall 3s linear infinite;
+        animation: confetti-fall 3s linear forwards;
         z-index: 1000;
     }
     </style>
     <div id="confetti-container"></div>
     <script>
-    function createConfetti() {
+    (function createConfetti() {
         const container = document.getElementById('confetti-container');
         const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
         
@@ -130,10 +137,21 @@ def show_celebration():
             confetti.style.height = Math.random() * 10 + 5 + 'px';
             container.appendChild(confetti);
             
-            setTimeout(() => confetti.remove(), 3000);
+            // Remove element after animation completes
+            setTimeout(() => {
+                if (confetti.parentNode === container) {
+                    container.removeChild(confetti);
+                }
+            }, 5000);
         }
-    }
-    createConfetti();
+        
+        // Remove container after all confetti is gone
+        setTimeout(() => {
+            if (container.parentNode) {
+                container.parentNode.removeChild(container);
+            }
+        }, 6000);
+    })();
     </script>
     """, unsafe_allow_html=True)
     
@@ -172,8 +190,11 @@ def decode_stories_from_url():
         st.error(f"Error loading data: {str(e)}")
         return None
 
-def create_docx_biography(stories_data):
-    """Create a professionally formatted Word document (.docx)"""
+# ============================================================================
+# NEW: EXPORT OPTION FUNCTIONS
+# ============================================================================
+def create_docx_biography(stories_data, include_questions=True):
+    """Create a professionally formatted Word document (.docx) with option for questions"""
     if not DOCX_AVAILABLE:
         raise Exception("python-docx library not available. Please install with: pip install python-docx==1.1.0")
     
@@ -197,13 +218,16 @@ def create_docx_biography(stories_data):
     
     # ========== SET UP DOCUMENT STYLES ==========
     
-    # Title style
-    title_style = doc.styles.add_style('CustomTitle', WD_STYLE_TYPE.PARAGRAPH)
-    title_font = title_style.font
-    title_font.name = 'Calibri Light'
-    title_font.size = Pt(28)
-    title_font.bold = True
-    title_font.color.rgb = RGBColor(44, 82, 130)  # Dark blue
+    # Title style - Check if exists first
+    try:
+        title_style = doc.styles['CustomTitle']
+    except KeyError:
+        title_style = doc.styles.add_style('CustomTitle', WD_STYLE_TYPE.PARAGRAPH)
+        title_font = title_style.font
+        title_font.name = 'Calibri Light'
+        title_font.size = Pt(28)
+        title_font.bold = True
+        title_font.color.rgb = RGBColor(44, 82, 130)  # Dark blue
     
     # Heading 1 style
     heading1_style = doc.styles['Heading 1']
@@ -224,23 +248,19 @@ def create_docx_biography(stories_data):
     normal_style.font.name = 'Calibri'
     normal_style.font.size = Pt(11)
     
-    # Quote style - Only create if it doesn't already exist[citation:3]
+    # Quote style - Only create if it doesn't exist (FIXED)
     try:
-        # First, try to access the style. This will work if it exists.
         quote_style = doc.styles['Quote']
     except KeyError:
-        # If a KeyError is raised, the style does not exist, so create it.
         quote_style = doc.styles.add_style('Quote', WD_STYLE_TYPE.PARAGRAPH)
         quote_style.font.name = 'Calibri'
         quote_style.font.size = Pt(11)
         quote_style.font.italic = True
         quote_style.paragraph_format.left_indent = Inches(0.5)
         quote_style.paragraph_format.right_indent = Inches(0.5)
-    # If it already existed, the existing 'quote_style' variable is used, and no changes are made to its properties.
     
     # ========== CREATE COVER PAGE ==========
     
-    # Title
     title_para = doc.add_paragraph()
     title_run = title_para.add_run("TELL MY STORY\n")
     title_run.font.name = 'Calibri Light'
@@ -249,7 +269,6 @@ def create_docx_biography(stories_data):
     title_run.font.color.rgb = RGBColor(44, 82, 130)
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Subtitle
     subtitle_para = doc.add_paragraph()
     subtitle_run = subtitle_para.add_run("A Personal Biography\n")
     subtitle_run.font.name = 'Calibri'
@@ -317,7 +336,8 @@ def create_docx_biography(stories_data):
     intro_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
     intro_para = doc.add_paragraph()
-    intro_text = f"This biography captures the unique life journey of {author_name}, "
+    export_type = "Interview Q&A" if include_questions else "Biography"
+    intro_text = f"This {export_type.lower()} captures the unique life journey of {author_name}, "
     intro_text += f"compiled from personal reflections shared on {datetime.now().strftime('%B %d, %Y')}. "
     intro_text += "Each chapter represents a different phase of life, preserved here for future generations."
     intro_para.add_run(intro_text)
@@ -363,8 +383,11 @@ def create_docx_biography(stories_data):
             word_count = len(answer.split())
             total_words += word_count
             
-            # Story header
-            story_header = doc.add_heading(f'Story {story_num}: {question}', 2)
+            # Story header - only include question if option is selected
+            if include_questions:
+                story_header = doc.add_heading(f'Story {story_num}: {question}', 2)
+            else:
+                story_header = doc.add_heading(f'Story {story_num}', 2)
             
             # Date if available
             if date_recorded:
@@ -405,7 +428,9 @@ def create_docx_biography(stories_data):
     hdr_cells[1].text = 'Value'
     
     # Data rows
+    export_type_display = "Interview Q&A" if include_questions else "Biography"
     metrics = [
+        ('Export Type', export_type_display),
         ('Total Chapters', str(chapter_num)),
         ('Total Stories', str(total_stories)),
         ('Total Words', f"{total_words:,}"),
@@ -423,7 +448,7 @@ def create_docx_biography(stories_data):
     
     # Conclusion
     conclusion_para = doc.add_paragraph()
-    conclusion_text = f"This biography contains {total_stories} personal stories from {author_name}'s life, "
+    conclusion_text = f"This {export_type_display.lower()} contains {total_stories} personal stories from {author_name}'s life, "
     conclusion_text += f"totaling {total_words:,} words across {chapter_num} chapters. "
     conclusion_text += "These memories are now preserved for future generations to cherish."
     conclusion_para.add_run(conclusion_text)
@@ -446,8 +471,8 @@ def create_docx_biography(stories_data):
     
     return docx_bytes, author_name, chapter_num, total_stories, total_words
 
-def create_beautiful_biography(stories_data):
-    """Create a professionally formatted biography with AI-inspired formatting"""
+def create_beautiful_biography(stories_data, include_questions=True):
+    """Create a professionally formatted biography with option for questions"""
     user_name = stories_data.get("user", "Unknown")
     user_profile = stories_data.get("user_profile", {})
     stories_dict = stories_data.get("stories", {})
@@ -494,9 +519,10 @@ def create_beautiful_biography(stories_data):
         return "No stories found to publish.", [], display_name, 0, 0, 0
     
     # ========== CREATE BEAUTIFUL BIOGRAPHY ==========
+    export_type = "INTERVIEW Q&A" if include_questions else "BIOGRAPHY"
     bio_text = "=" * 70 + "\n"
     bio_text += f"{'TELL MY STORY':^70}\n"
-    bio_text += f"{'A PERSONAL BIOGRAPHY':^70}\n"
+    bio_text += f"{export_type:^70}\n"
     bio_text += "=" * 70 + "\n\n"
     
     bio_text += f"THE LIFE STORY OF\n{display_name.upper()}\n\n"
@@ -528,7 +554,7 @@ def create_beautiful_biography(stories_data):
     
     # Introduction
     bio_text += "INTRODUCTION\n\n"
-    bio_text += f"This biography captures the unique life journey of {display_name}, "
+    bio_text += f"This {export_type.lower()} captures the unique life journey of {display_name}, "
     bio_text += f"compiled from personal reflections shared on {datetime.now().strftime('%B %d, %Y')}. "
     bio_text += "Each chapter represents a different phase of life, preserved here for future generations.\n\n"
     
@@ -548,8 +574,13 @@ def create_beautiful_biography(stories_data):
             current_session = story["session"]
         
         story_num += 1
-        bio_text += f"Story {story_num}\n"
-        bio_text += f"Topic: {story['question']}\n"
+        
+        # Include question only if selected
+        if include_questions:
+            bio_text += f"Story {story_num}\n"
+            bio_text += f"Topic: {story['question']}\n"
+        else:
+            bio_text += f"Story {story_num}\n"
         
         if story['date']:
             bio_text += f"Recorded: {story['date']}\n"
@@ -575,8 +606,9 @@ def create_beautiful_biography(stories_data):
     
     # Statistics
     bio_text += "-" * 70 + "\n"
-    bio_text += "BIOGRAPHY STATISTICS\n"
+    bio_text += f"{export_type} STATISTICS\n"
     bio_text += "-" * 40 + "\n"
+    bio_text += f"• Export Type: {export_type}\n"
     bio_text += f"• Total Stories: {story_num}\n"
     bio_text += f"• Total Chapters: {chapter_num}\n"
     
@@ -598,16 +630,18 @@ def create_beautiful_biography(stories_data):
     
     return bio_text, all_stories, display_name, story_num, chapter_num, total_words
 
-def create_html_biography(stories_data):
-    """Create an HTML version with beautiful formatting"""
-    bio_text, all_stories, display_name, story_num, chapter_num, total_words = create_beautiful_biography(stories_data)
+def create_html_biography(stories_data, include_questions=True):
+    """Create an HTML version with option for questions"""
+    bio_text, all_stories, display_name, story_num, chapter_num, total_words = create_beautiful_biography(stories_data, include_questions)
+    
+    export_type = "Interview Q&A" if include_questions else "Biography"
     
     html = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{display_name}'s Biography</title>
+    <title>{display_name}'s {export_type}</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Open+Sans:wght@300;400;600&display=swap');
         
@@ -695,7 +729,7 @@ def create_html_biography(stories_data):
 <body>
     <div class="header">
         <h1>{display_name}'s Life Story</h1>
-        <div class="subtitle">A Personal Biography • {datetime.now().strftime('%B %d, %Y')}</div>
+        <div class="subtitle">{export_type} • {datetime.now().strftime('%B %d, %Y')}</div>
     </div>
     
     <div class="stats">
@@ -731,7 +765,15 @@ def create_html_biography(stories_data):
         
         html += f'''
         <div class="story">
+        '''
+        
+        # Include question only if selected
+        if include_questions:
+            html += f'''
             <div class="question">✏️ {story['question']}</div>
+            '''
+        
+        html += f'''
             <div class="answer">{story['answer']}</div>
         '''
         
@@ -753,7 +795,7 @@ def create_html_biography(stories_data):
     </div>
     
     <div class="footer">
-        <p>Created with Tell My Story Biographer</p>
+        <p>Created with Tell My Story Biographer • {export_type}</p>
         <p>{datetime.now().strftime('%B %d, %Y at %I:%M %p')}</p>
     </div>
     
@@ -768,7 +810,7 @@ def create_html_biography(stories_data):
             cursor: pointer;
             margin: 20px;
         ">
-            🖨️ Print This Biography
+            🖨️ Print This {export_type}
         </button>
     </div>
 </body>
@@ -783,7 +825,7 @@ def create_html_biography(stories_data):
 st.markdown('<h1 class="main-title">📖 Beautiful Biography Creator</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Transform your life stories into a professionally formatted book</p>', unsafe_allow_html=True)
 
-# Format information card - NICER VERSION
+# Format information card
 st.markdown("""
 <div class="format-card">
     <h3>🎯 Available Export Formats</h3>
@@ -865,20 +907,63 @@ if stories_data:
         if not DOCX_AVAILABLE:
             st.warning("⚠️ DOCX export requires python-docx. Other formats are available.")
         
+        # NEW: Export Options Section
+        st.markdown("---")
+        st.subheader("📝 Export Options")
+        
+        col_option1, col_option2 = st.columns(2)
+        
+        with col_option1:
+            st.markdown("""
+            <div class="export-option">
+                <h4>📚 Biography Format</h4>
+                <p><strong>Just the answers</strong> - Clean narrative format</p>
+                <p>• Flowing story without questions</p>
+                <p>• More like a traditional biography</p>
+                <p>• Professional for sharing</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_option2:
+            st.markdown("""
+            <div class="export-option">
+                <h4>🎤 Interview Format</h4>
+                <p><strong>Questions & answers</strong> - Complete Q&A format</p>
+                <p>• Includes all interview questions</p>
+                <p>• Preserves the conversational flow</p>
+                <p>• Great for reference</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Radio button for export option
+        export_format = st.radio(
+            "Choose your export format:",
+            ["📚 Biography Format (Just Answers)", "🎤 Interview Format (Questions & Answers)"],
+            index=0,
+            horizontal=True,
+            key="export_format"
+        )
+        
+        include_questions = export_format == "🎤 Interview Format (Questions & Answers)"
+        
         # Generate biography button
         if st.button("✨ Create Beautiful Biography", type="primary", use_container_width=True, key="create_bio_btn"):
             with st.spinner("🖋️ Crafting your beautiful biography..."):
                 time.sleep(1)
                 
                 # Create all versions
-                bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(stories_data)
-                html_bio, html_name = create_html_biography(stories_data)
+                bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(
+                    stories_data, include_questions
+                )
+                html_bio, html_name = create_html_biography(stories_data, include_questions)
                 
                 # Create DOCX if available
                 docx_data = None
                 if DOCX_AVAILABLE:
                     try:
-                        docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(stories_data)
+                        docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(
+                            stories_data, include_questions
+                        )
                         docx_data = docx_bytes
                     except Exception as e:
                         st.error(f"⚠️ DOCX creation failed: {str(e)}")
@@ -888,7 +973,8 @@ if stories_data:
             show_celebration()
             
             # Show preview
-            st.subheader("📖 Your Biography Preview")
+            export_type_display = "Interview Q&A" if include_questions else "Biography"
+            st.subheader(f"📖 Your {export_type_display} Preview")
             
             col_preview1, col_preview2 = st.columns([2, 1])
             
@@ -901,19 +987,20 @@ if stories_data:
             
             with col_preview2:
                 st.markdown('<div class="stats-card">', unsafe_allow_html=True)
+                st.metric("Format", export_type_display)
                 st.metric("📚 Chapters", chapter_num)
                 st.metric("📝 Stories", story_num)
                 st.metric("📊 Total Words", f"{total_words:,}")
-                st.metric("📏 File Size", f"{len(bio_text):,} chars")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Download options - NICER LAYOUT
+            # Download options
             st.subheader("📥 Download Your Biography")
             
             # Create markdown version
             md_bio = bio_text.replace("=" * 70, "#" * 3)
             
             safe_name = author_name.replace(" ", "_")
+            file_suffix = "_Interview" if include_questions else "_Biography"
             
             # Row 1: Download buttons
             col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
@@ -922,7 +1009,7 @@ if stories_data:
                 st.download_button(
                     label="📄 TEXT",
                     data=bio_text,
-                    file_name=f"{safe_name}_Biography.txt",
+                    file_name=f"{safe_name}{file_suffix}.txt",
                     mime="text/plain",
                     use_container_width=True,
                     type="primary",
@@ -933,7 +1020,7 @@ if stories_data:
                 st.download_button(
                     label="🌐 HTML",
                     data=html_bio,
-                    file_name=f"{safe_name}_Biography.html",
+                    file_name=f"{safe_name}{file_suffix}.html",
                     mime="text/html",
                     use_container_width=True,
                     type="secondary",
@@ -944,7 +1031,7 @@ if stories_data:
                 st.download_button(
                     label="📝 MARKDOWN",
                     data=md_bio,
-                    file_name=f"{safe_name}_Biography.md",
+                    file_name=f"{safe_name}{file_suffix}.md",
                     mime="text/markdown",
                     use_container_width=True,
                     type="secondary",
@@ -956,7 +1043,7 @@ if stories_data:
                     st.download_button(
                         label="📘 WORD DOC",
                         data=docx_data,
-                        file_name=f"{safe_name}_Biography.docx",
+                        file_name=f"{safe_name}{file_suffix}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True,
                         type="primary",
@@ -1007,19 +1094,22 @@ if stories_data:
                             answer = str(answer_data)
                         
                         if answer.strip():
-                            st.markdown(f"**{question}**")
+                            if include_questions:
+                                st.markdown(f"**{question}**")
+                            else:
+                                st.markdown(f"**Story**")
                             st.write(answer[:200] + "..." if len(answer) > 200 else answer)
                             st.caption(f"{len(answer.split())} words")
                             st.divider()
             
-            st.success(f"✨ Biography created! **{story_num} stories** across **{chapter_num} chapters** ({total_words:,} words)")
+            st.success(f"✨ {export_type_display} created! **{story_num} stories** across **{chapter_num} chapters** ({total_words:,} words)")
             
             # Shareable achievement
             st.markdown("---")
             st.markdown("### 🏆 Your Achievement")
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 2rem; border-radius: 15px; color: white; text-align: center; margin: 1rem 0;">
-                <h2 style="color: white; margin-bottom: 1rem;">🎉 Biography Master! 🎉</h2>
+                <h2 style="color: white; margin-bottom: 1rem;">🎉 {export_type_display} Master! 🎉</h2>
                 <div style="display: flex; justify-content: center; gap: 3rem; margin: 1.5rem 0;">
                     <div>
                         <div style="font-size: 2.5em; font-weight: bold;">{chapter_num}</div>
@@ -1043,7 +1133,7 @@ if stories_data:
         st.info("Go back to the main app and save some stories first!")
         
 else:
-    # Manual upload option - NICER VERSION
+    # Manual upload option
     st.info("📋 **How to create your biography:**")
     
     col1, col2 = st.columns(2)
@@ -1095,20 +1185,35 @@ else:
                 story_count = sum(len(session.get("questions", {})) for session in uploaded_data.get("stories", {}).values())
                 st.success(f"✅ Loaded {story_count} stories")
                 
+                # Add export format option for manual upload
+                manual_export_format = st.radio(
+                    "Choose export format for manual upload:",
+                    ["📚 Biography Format (Just Answers)", "🎤 Interview Format (Questions & Answers)"],
+                    index=0,
+                    horizontal=True,
+                    key="manual_export_format"
+                )
+                manual_include_questions = manual_export_format == "🎤 Interview Format (Questions & Answers)"
+                
                 if st.button("Create Biography from File", type="primary", use_container_width=True):
-                    bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(uploaded_data)
+                    bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(
+                        uploaded_data, manual_include_questions
+                    )
                     
                     safe_name = author_name.replace(" ", "_")
+                    file_suffix = "_Interview" if manual_include_questions else "_Biography"
                     
                     # Create all formats
-                    html_bio, _ = create_html_biography(uploaded_data)
+                    html_bio, _ = create_html_biography(uploaded_data, manual_include_questions)
                     md_bio = bio_text.replace("=" * 70, "#" * 3)
                     
                     # Try DOCX
                     docx_data = None
                     if DOCX_AVAILABLE:
                         try:
-                            docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(uploaded_data)
+                            docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(
+                                uploaded_data, manual_include_questions
+                            )
                             docx_data = docx_bytes
                         except Exception as e:
                             st.warning(f"Could not create DOCX: {str(e)}")
@@ -1120,7 +1225,7 @@ else:
                         st.download_button(
                             label="📄 TXT",
                             data=bio_text,
-                            file_name=f"{safe_name}_Biography.txt",
+                            file_name=f"{safe_name}{file_suffix}.txt",
                             mime="text/plain",
                             use_container_width=True
                         )
@@ -1129,7 +1234,7 @@ else:
                         st.download_button(
                             label="🌐 HTML",
                             data=html_bio,
-                            file_name=f"{safe_name}_Biography.html",
+                            file_name=f"{safe_name}{file_suffix}.html",
                             mime="text/html",
                             use_container_width=True
                         )
@@ -1138,7 +1243,7 @@ else:
                         st.download_button(
                             label="📝 MD",
                             data=md_bio,
-                            file_name=f"{safe_name}_Biography.md",
+                            file_name=f"{safe_name}{file_suffix}.md",
                             mime="text/markdown",
                             use_container_width=True
                         )
@@ -1148,7 +1253,7 @@ else:
                             st.download_button(
                                 label="📘 DOCX",
                                 data=docx_data,
-                                file_name=f"{safe_name}_Biography.docx",
+                                file_name=f"{safe_name}{file_suffix}.docx",
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 use_container_width=True
                             )
@@ -1165,4 +1270,4 @@ else:
 # FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • 4 Export Formats • Professional formatting • Celebration effects included")
+st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • 4 Export Formats • 2 Export Styles • Professional formatting • Celebration effects included")
