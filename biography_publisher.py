@@ -17,7 +17,6 @@ try:
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
-    st.warning("⚠️ python-docx not available. Please install with: pip install python-docx==1.1.0")
 
 # Page setup
 st.set_page_config(page_title="Biography Publisher", layout="wide")
@@ -78,6 +77,18 @@ st.markdown("""
         font-family: 'Courier New', monospace;
         font-size: 0.9em;
         line-height: 1.6;
+    }
+    .format-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+        border-top: 4px solid #3498db;
+    }
+    .format-icon {
+        font-size: 2.5em;
+        margin-bottom: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -212,6 +223,14 @@ def create_docx_biography(stories_data):
     normal_style = doc.styles['Normal']
     normal_style.font.name = 'Calibri'
     normal_style.font.size = Pt(11)
+    
+    # Quote style
+    quote_style = doc.styles.add_style('Quote', WD_STYLE_TYPE.PARAGRAPH)
+    quote_style.font.name = 'Calibri'
+    quote_style.font.size = Pt(11)
+    quote_style.font.italic = True
+    quote_style.paragraph_format.left_indent = Inches(0.5)
+    quote_style.paragraph_format.right_indent = Inches(0.5)
     
     # ========== CREATE COVER PAGE ==========
     
@@ -427,7 +446,6 @@ def create_beautiful_biography(stories_data):
     user_profile = stories_data.get("user_profile", {})
     stories_dict = stories_data.get("stories", {})
     summary = stories_data.get("summary", {})
-    images_data = stories_data.get("images", [])  # Get image data
     
     # Get display name
     if user_profile and 'first_name' in user_profile:
@@ -463,7 +481,7 @@ def create_beautiful_biography(stories_data):
                     "answer": answer,
                     "date": answer_data.get("timestamp", datetime.now().isoformat())[:10] 
                              if isinstance(answer_data, dict) else datetime.now().isoformat()[:10],
-                    "session_id": session_id  # Add session_id for image matching
+                    "session_id": session_id
                 })
     
     if not all_stories:
@@ -486,34 +504,6 @@ def create_beautiful_biography(stories_data):
             bio_text += f"Date of Birth: {user_profile.get('birthdate')}\n"
         if user_profile.get('gender'):
             bio_text += f"Gender: {user_profile.get('gender')}\n"
-        bio_text += "\n"
-    
-    # Image References (if available)
-    if images_data:
-        bio_text += "PHOTO REFERENCES\n"
-        bio_text += "-" * 40 + "\n"
-        
-        # Group images by session
-        images_by_session = {}
-        for img in images_data:
-            session_id = str(img.get("session_id", "0"))
-            images_by_session.setdefault(session_id, []).append(img)
-        
-        # Add image references by session
-        for session_id, images in images_by_session.items():
-            session_title = "Unknown Session"
-            for story in all_stories:
-                if str(story.get("session_id")) == session_id:
-                    session_title = story["session"]
-                    break
-            
-            bio_text += f"\n{session_title}:\n"
-            for img in images[:5]:  # Max 5 images per session
-                bio_text += f"  • {img.get('original_filename', 'Photo')}"
-                if img.get('description'):
-                    bio_text += f": {img.get('description')[:80]}"
-                bio_text += "\n"
-        
         bio_text += "\n"
     
     # Table of Contents
@@ -587,10 +577,6 @@ def create_beautiful_biography(stories_data):
     # Calculate word count
     total_words = sum(len(story['answer'].split()) for story in all_stories)
     bio_text += f"• Total Words: {total_words:,}\n"
-    
-    # Add image count if available
-    if images_data:
-        bio_text += f"• Photo References: {len(images_data)}\n"
     
     # Find longest story
     if all_stories:
@@ -791,6 +777,39 @@ def create_html_biography(stories_data):
 st.markdown('<h1 class="main-title">📖 Beautiful Biography Creator</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Transform your life stories into a professionally formatted book</p>', unsafe_allow_html=True)
 
+# Format information card - NICER VERSION
+st.markdown("""
+<div class="format-card">
+    <h3>🎯 Available Export Formats</h3>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 1.5rem;">
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 10px;">
+            <div class="format-icon">📄</div>
+            <div><strong>TEXT</strong></div>
+            <div style="font-size: 0.9em; color: #666;">Plain Text File</div>
+            <div style="font-size: 0.8em; color: #888; margin-top: 0.5rem;">.txt</div>
+        </div>
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 10px;">
+            <div class="format-icon">🌐</div>
+            <div><strong>HTML</strong></div>
+            <div style="font-size: 0.9em; color: #666;">Web Format</div>
+            <div style="font-size: 0.8em; color: #888; margin-top: 0.5rem;">.html</div>
+        </div>
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 10px;">
+            <div class="format-icon">📝</div>
+            <div><strong>MARKDOWN</strong></div>
+            <div style="font-size: 0.9em; color: #666;">Easy Editing</div>
+            <div style="font-size: 0.8em; color: #888; margin-top: 0.5rem;">.md</div>
+        </div>
+        <div style="text-align: center; padding: 1rem; background: #e8f4f8; border-radius: 10px; border: 2px solid #3498db;">
+            <div class="format-icon">📘</div>
+            <div><strong>WORD DOC</strong></div>
+            <div style="font-size: 0.9em; color: #666;">Microsoft Word</div>
+            <div style="font-size: 0.8em; color: #3498db; margin-top: 0.5rem; font-weight: bold;">.docx</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # Try to get data from URL first
 stories_data = decode_stories_from_url()
 
@@ -799,7 +818,6 @@ if stories_data:
     user_name = stories_data.get("user", "Unknown")
     user_profile = stories_data.get("user_profile", {})
     summary = stories_data.get("summary", {})
-    images_data = stories_data.get("images", [])  # Get image data
     
     # Count stories
     story_count = 0
@@ -808,7 +826,7 @@ if stories_data:
     
     if story_count > 0:
         # Display user info
-        col1, col2, col3 = st.columns([2, 1, 1])
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         
         with col1:
             if user_profile and user_profile.get('first_name'):
@@ -820,37 +838,45 @@ if stories_data:
                 st.caption(f"🎂 Born: {user_profile.get('birthdate')}")
         
         with col2:
-            st.metric("Total Sessions", len(stories_data.get("stories", {})))
+            st.metric("Sessions", len(stories_data.get("stories", {})))
         
         with col3:
-            st.metric("Total Stories", story_count)
+            st.metric("Stories", story_count)
         
-        # Show image count if available
-        if images_data:
-            st.info(f"📷 Includes {len(images_data)} photo references")
+        with col4:
+            # Count total words
+            total_words = 0
+            for session_id, session_data in stories_data.get("stories", {}).items():
+                for question, answer_data in session_data.get("questions", {}).items():
+                    if isinstance(answer_data, dict):
+                        answer = answer_data.get("answer", "")
+                    else:
+                        answer = str(answer_data)
+                    total_words += len(answer.split())
+            st.metric("Words", f"{total_words:,}")
+        
+        # DOCX availability indicator
+        if not DOCX_AVAILABLE:
+            st.warning("⚠️ DOCX export requires python-docx. Other formats are available.")
         
         # Generate biography button
-        if st.button("✨ Create Beautiful Biography", type="primary", use_container_width=True):
+        if st.button("✨ Create Beautiful Biography", type="primary", use_container_width=True, key="create_bio_btn"):
             with st.spinner("🖋️ Crafting your beautiful biography..."):
-                time.sleep(1)  # Simulate processing
+                time.sleep(1)
                 
-                # Create text version
+                # Create all versions
                 bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(stories_data)
-                
-                # Create HTML version
                 html_bio, html_name = create_html_biography(stories_data)
                 
-                # Create DOCX version if available
+                # Create DOCX if available
                 docx_data = None
                 if DOCX_AVAILABLE:
                     try:
                         docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(stories_data)
                         docx_data = docx_bytes
                     except Exception as e:
-                        st.error(f"⚠️ Could not create DOCX: {str(e)}")
+                        st.error(f"⚠️ DOCX creation failed: {str(e)}")
                         docx_data = None
-                else:
-                    st.warning("⚠️ DOCX export not available. Install python-docx with: pip install python-docx==1.1.0")
             
             # Show celebration
             show_celebration()
@@ -872,72 +898,89 @@ if stories_data:
                 st.metric("📚 Chapters", chapter_num)
                 st.metric("📝 Stories", story_num)
                 st.metric("📊 Total Words", f"{total_words:,}")
-                st.metric("📏 Biography Size", f"{len(bio_text):,} chars")
-                if images_data:
-                    st.metric("📷 Photo References", len(images_data))
+                st.metric("📏 File Size", f"{len(bio_text):,} chars")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Download options
+            # Download options - NICER LAYOUT
             st.subheader("📥 Download Your Biography")
             
-            col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
+            # Create markdown version
+            md_bio = bio_text.replace("=" * 70, "#" * 3)
             
             safe_name = author_name.replace(" ", "_")
             
+            # Row 1: Download buttons
+            col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
+            
             with col_dl1:
                 st.download_button(
-                    label="📄 Download TXT",
+                    label="📄 TEXT",
                     data=bio_text,
                     file_name=f"{safe_name}_Biography.txt",
                     mime="text/plain",
                     use_container_width=True,
-                    type="primary"
+                    type="primary",
+                    help="Plain text format - universal compatibility"
                 )
-                st.caption("Plain text format")
             
             with col_dl2:
                 st.download_button(
-                    label="🌐 Download HTML",
+                    label="🌐 HTML",
                     data=html_bio,
                     file_name=f"{safe_name}_Biography.html",
                     mime="text/html",
                     use_container_width=True,
-                    type="secondary"
+                    type="secondary",
+                    help="Beautiful web format - ready to print"
                 )
-                st.caption("Web format")
             
             with col_dl3:
-                # Markdown version
-                md_bio = bio_text.replace("=" * 70, "#" * 3)
                 st.download_button(
-                    label="📝 Download MD",
+                    label="📝 MARKDOWN",
                     data=md_bio,
                     file_name=f"{safe_name}_Biography.md",
                     mime="text/markdown",
                     use_container_width=True,
-                    type="secondary"
+                    type="secondary",
+                    help="Markdown format for easy editing"
                 )
-                st.caption("Markdown format")
             
             with col_dl4:
-                # DOCX version
                 if docx_data:
                     st.download_button(
-                        label="📘 Download DOCX",
+                        label="📘 WORD DOC",
                         data=docx_data,
                         file_name=f"{safe_name}_Biography.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True,
-                        type="primary"
+                        type="primary",
+                        help="Microsoft Word document - professional formatting"
                     )
-                    st.caption("Microsoft Word")
                 else:
                     st.button(
-                        "📘 DOCX (Unavailable)",
+                        "📘 WORD DOC",
                         disabled=True,
-                        use_container_width=True
+                        use_container_width=True,
+                        help="Install python-docx to enable Word export"
                     )
-                    st.caption("Install python-docx")
+            
+            # Row 2: Format descriptions
+            col_desc1, col_desc2, col_desc3, col_desc4 = st.columns(4)
+            
+            with col_desc1:
+                st.caption("**TEXT** - Universal format")
+            
+            with col_desc2:
+                st.caption("**HTML** - Web & print ready")
+            
+            with col_desc3:
+                st.caption("**MARKDOWN** - Easy editing")
+            
+            with col_desc4:
+                if docx_data:
+                    st.caption("**WORD DOC** - Professional")
+                else:
+                    st.caption("**WORD DOC** - Not available")
             
             # Story preview
             with st.expander("📋 Preview Your Stories", expanded=False):
@@ -947,11 +990,11 @@ if stories_data:
                 except:
                     sorted_sessions = stories_data.get("stories", {}).items()
                 
-                for session_id, session_data in sorted_sessions[:3]:  # Show first 3 sessions
+                for session_id, session_data in sorted_sessions[:3]:
                     session_title = session_data.get("title", f"Session {session_id}")
                     st.markdown(f"### {session_title}")
                     
-                    for question, answer_data in list(session_data.get("questions", {}).items())[:2]:  # First 2 stories
+                    for question, answer_data in list(session_data.get("questions", {}).items())[:2]:
                         if isinstance(answer_data, dict):
                             answer = answer_data.get("answer", "")
                         else:
@@ -969,10 +1012,23 @@ if stories_data:
             st.markdown("---")
             st.markdown("### 🏆 Your Achievement")
             st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 15px; color: white; text-align: center;">
-                <h3 style="color: white;">🎉 Biography Master! 🎉</h3>
-                <p>You've preserved {story_num} stories across {chapter_num} chapters</p>
-                <p>{total_words:,} words of your life story are now immortalized!</p>
+            <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 2rem; border-radius: 15px; color: white; text-align: center; margin: 1rem 0;">
+                <h2 style="color: white; margin-bottom: 1rem;">🎉 Biography Master! 🎉</h2>
+                <div style="display: flex; justify-content: center; gap: 3rem; margin: 1.5rem 0;">
+                    <div>
+                        <div style="font-size: 2.5em; font-weight: bold;">{chapter_num}</div>
+                        <div>Chapters</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 2.5em; font-weight: bold;">{story_num}</div>
+                        <div>Stories</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 2.5em; font-weight: bold;">{total_words:,}</div>
+                        <div>Words</div>
+                    </div>
+                </div>
+                <p style="font-size: 1.1em; margin-top: 1rem;">Your life story is now preserved in {4 if docx_data else 3} formats!</p>
             </div>
             """, unsafe_allow_html=True)
     
@@ -981,7 +1037,7 @@ if stories_data:
         st.info("Go back to the main app and save some stories first!")
         
 else:
-    # Manual upload option
+    # Manual upload option - NICER VERSION
     st.info("📋 **How to create your biography:**")
     
     col1, col2 = st.columns(2)
@@ -993,11 +1049,26 @@ else:
         2. Answer questions and save your responses
         3. Click the **Publish Biography** button
         4. Your stories will automatically appear here
+        
+        *No file upload needed!*
         """)
         
         st.markdown("""
         <a href="#" target="_blank">
-        <button class="download-btn">
+        <button style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 1rem;
+            text-align: center;
+            display: block;
+        ">
         📖 Go to Tell My Story App
         </button>
         </a>
@@ -1023,35 +1094,60 @@ else:
                     
                     safe_name = author_name.replace(" ", "_")
                     
-                    col_dl1, col_dl2 = st.columns(2)
-                    with col_dl1:
-                        st.download_button(
-                            label="📥 Download Text Version",
-                            data=bio_text,
-                            file_name=f"{safe_name}_Biography.txt",
-                            mime="text/plain"
-                        )
-                    with col_dl2:
-                        html_bio, _ = create_html_biography(uploaded_data)
-                        st.download_button(
-                            label="🌐 Download HTML Version",
-                            data=html_bio,
-                            file_name=f"{safe_name}_Biography.html",
-                            mime="text/html"
-                        )
+                    # Create all formats
+                    html_bio, _ = create_html_biography(uploaded_data)
+                    md_bio = bio_text.replace("=" * 70, "#" * 3)
                     
-                    # Add DOCX if available
+                    # Try DOCX
+                    docx_data = None
                     if DOCX_AVAILABLE:
                         try:
                             docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(uploaded_data)
-                            st.download_button(
-                                label="📘 Download DOCX Version",
-                                data=docx_bytes,
-                                file_name=f"{safe_name}_Biography.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                            )
+                            docx_data = docx_bytes
                         except Exception as e:
                             st.warning(f"Could not create DOCX: {str(e)}")
+                    
+                    # Show download buttons in columns
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.download_button(
+                            label="📄 TXT",
+                            data=bio_text,
+                            file_name=f"{safe_name}_Biography.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="🌐 HTML",
+                            data=html_bio,
+                            file_name=f"{safe_name}_Biography.html",
+                            mime="text/html",
+                            use_container_width=True
+                        )
+                    
+                    with col3:
+                        st.download_button(
+                            label="📝 MD",
+                            data=md_bio,
+                            file_name=f"{safe_name}_Biography.md",
+                            mime="text/markdown",
+                            use_container_width=True
+                        )
+                    
+                    with col4:
+                        if docx_data:
+                            st.download_button(
+                                label="📘 DOCX",
+                                data=docx_data,
+                                file_name=f"{safe_name}_Biography.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True
+                            )
+                        else:
+                            st.button("📘 DOCX", disabled=True, use_container_width=True)
                     
                     show_celebration()
                     st.success(f"Biography created for {author_name}!")
@@ -1063,4 +1159,4 @@ else:
 # FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • Professional formatting • Celebration effects included • 4 Export Formats: TXT, HTML, MD, DOCX")
+st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • 4 Export Formats • Professional formatting • Celebration effects included")
