@@ -1,9 +1,23 @@
-# biography_publisher.py - FIXED VERSION WITH BALLOONS
+# biography_publisher.py - FIXED VERSION WITH BALLOONS AND DOCX EXPORT
 import streamlit as st
 import json
 import base64
 from datetime import datetime
 import time
+from io import BytesIO
+
+# ============================================================================
+# IMPORT DOCX LIBRARY
+# ============================================================================
+try:
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.style import WD_STYLE_TYPE
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    st.warning("⚠️ python-docx not installed. DOCX export will not be available.")
 
 # Page setup
 st.set_page_config(page_title="Biography Publisher", layout="wide")
@@ -64,6 +78,14 @@ st.markdown("""
         font-family: 'Courier New', monospace;
         font-size: 0.9em;
         line-height: 1.6;
+    }
+    .format-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+        border-top: 4px solid #3498db;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -146,6 +168,277 @@ def decode_stories_from_url():
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         return None
+
+# ============================================================================
+# DOCX CREATION FUNCTIONS
+# ============================================================================
+def create_docx_biography(stories_data):
+    """Create a professionally formatted Word document (.docx)"""
+    if not DOCX_AVAILABLE:
+        raise Exception("python-docx library not available. Please install with: pip install python-docx")
+    
+    # Extract data
+    user_name = stories_data.get("user", "Unknown")
+    user_profile = stories_data.get("user_profile", {})
+    stories_dict = stories_data.get("stories", {})
+    
+    # Get author name
+    if user_profile and 'first_name' in user_profile:
+        first_name = user_profile.get('first_name', '')
+        last_name = user_profile.get('last_name', '')
+        author_name = f"{first_name} {last_name}".strip()
+        if not author_name:
+            author_name = user_name
+    else:
+        author_name = user_name
+    
+    # Create document
+    doc = Document()
+    
+    # ========== SET UP DOCUMENT STYLES ==========
+    
+    # Title style
+    title_style = doc.styles.add_style('CustomTitle', WD_STYLE_TYPE.PARAGRAPH)
+    title_font = title_style.font
+    title_font.name = 'Calibri Light'
+    title_font.size = Pt(28)
+    title_font.bold = True
+    title_font.color.rgb = RGBColor(44, 82, 130)  # Dark blue
+    
+    # Heading 1 style
+    heading1_style = doc.styles['Heading 1']
+    heading1_style.font.name = 'Calibri'
+    heading1_style.font.size = Pt(20)
+    heading1_style.font.bold = True
+    heading1_style.font.color.rgb = RGBColor(44, 82, 130)
+    
+    # Heading 2 style
+    heading2_style = doc.styles['Heading 2']
+    heading2_style.font.name = 'Calibri'
+    heading2_style.font.size = Pt(16)
+    heading2_style.font.bold = True
+    heading2_style.font.color.rgb = RGBColor(66, 133, 244)  # Blue
+    
+    # Normal style
+    normal_style = doc.styles['Normal']
+    normal_style.font.name = 'Calibri'
+    normal_style.font.size = Pt(11)
+    
+    # Quote style
+    quote_style = doc.styles.add_style('Quote', WD_STYLE_TYPE.PARAGRAPH)
+    quote_style.font.name = 'Calibri'
+    quote_style.font.size = Pt(11)
+    quote_style.font.italic = True
+    quote_style.paragraph_format.left_indent = Inches(0.5)
+    quote_style.paragraph_format.right_indent = Inches(0.5)
+    
+    # ========== CREATE COVER PAGE ==========
+    
+    # Title
+    title_para = doc.add_paragraph()
+    title_run = title_para.add_run("TELL MY STORY\n")
+    title_run.font.name = 'Calibri Light'
+    title_run.font.size = Pt(36)
+    title_run.font.bold = True
+    title_run.font.color.rgb = RGBColor(44, 82, 130)
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Subtitle
+    subtitle_para = doc.add_paragraph()
+    subtitle_run = subtitle_para.add_run("A Personal Biography\n")
+    subtitle_run.font.name = 'Calibri'
+    subtitle_run.font.size = Pt(20)
+    subtitle_run.italic = True
+    subtitle_run.font.color.rgb = RGBColor(100, 100, 100)
+    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph("\n\n\n\n")
+    
+    # Author name
+    author_para = doc.add_paragraph()
+    author_run = author_para.add_run(f"The Life Story of\n{author_name.upper()}")
+    author_run.font.name = 'Calibri'
+    author_run.font.size = Pt(24)
+    author_run.font.color.rgb = RGBColor(0, 0, 0)
+    author_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph("\n\n\n\n\n\n")
+    
+    # Date
+    date_para = doc.add_paragraph()
+    date_run = date_para.add_run(f"Compiled on {datetime.now().strftime('%B %d, %Y')}")
+    date_run.font.name = 'Calibri'
+    date_run.font.size = Pt(14)
+    date_run.font.color.rgb = RGBColor(100, 100, 100)
+    date_run.italic = True
+    date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Page break
+    doc.add_page_break()
+    
+    # ========== TABLE OF CONTENTS ==========
+    
+    toc_title = doc.add_heading('TABLE OF CONTENTS', 1)
+    toc_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph()
+    
+    # Collect all sessions for TOC
+    try:
+        sorted_sessions = sorted(stories_dict.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
+    except:
+        sorted_sessions = stories_dict.items()
+    
+    for session_id, session_data in sorted_sessions:
+        session_title = session_data.get("title", f"Chapter {session_id}")
+        questions = session_data.get("questions", {})
+        
+        if questions:
+            para = doc.add_paragraph()
+            para.style = 'Normal'
+            run = para.add_run(f"{session_title}")
+            run.bold = True
+            run.font.size = Pt(12)
+            
+            # Add page numbers placeholder
+            para.add_run(f"\t\t\t...... ")
+    
+    doc.add_paragraph("\n")
+    
+    # ========== INTRODUCTION ==========
+    
+    intro_title = doc.add_heading('INTRODUCTION', 1)
+    intro_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    intro_para = doc.add_paragraph()
+    intro_text = f"This biography captures the unique life journey of {author_name}, "
+    intro_text += f"compiled from personal reflections shared on {datetime.now().strftime('%B %d, %Y')}. "
+    intro_text += "Each chapter represents a different phase of life, preserved here for future generations."
+    intro_para.add_run(intro_text)
+    
+    doc.add_page_break()
+    
+    # ========== CHAPTERS AND STORIES ==========
+    
+    chapter_num = 0
+    total_stories = 0
+    total_words = 0
+    
+    for session_id, session_data in sorted_sessions:
+        session_title = session_data.get("title", f"Chapter {session_id}")
+        questions = session_data.get("questions", {})
+        
+        if not questions:
+            continue
+        
+        chapter_num += 1
+        
+        # Chapter header
+        chapter_title = doc.add_heading(f'CHAPTER {chapter_num}: {session_title.upper()}', 1)
+        chapter_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        doc.add_paragraph()
+        
+        # Process each story in this chapter
+        story_num = 0
+        for question, answer_data in questions.items():
+            if isinstance(answer_data, dict):
+                answer = answer_data.get("answer", "")
+                date_recorded = answer_data.get("timestamp", datetime.now().isoformat())[:10]
+            else:
+                answer = str(answer_data)
+                date_recorded = datetime.now().isoformat()[:10]
+            
+            if not answer.strip():
+                continue
+            
+            story_num += 1
+            total_stories += 1
+            word_count = len(answer.split())
+            total_words += word_count
+            
+            # Story header
+            story_header = doc.add_heading(f'Story {story_num}: {question}', 2)
+            
+            # Date if available
+            if date_recorded:
+                date_para = doc.add_paragraph()
+                date_run = date_para.add_run(f"Recorded: {date_recorded}")
+                date_run.font.size = Pt(10)
+                date_run.font.color.rgb = RGBColor(100, 100, 100)
+                date_run.italic = True
+            
+            # Story content
+            content_para = doc.add_paragraph()
+            content_para.add_run(answer.strip())
+            
+            # Word count
+            count_para = doc.add_paragraph()
+            count_run = count_para.add_run(f"[{word_count} words]")
+            count_run.font.size = Pt(9)
+            count_run.font.color.rgb = RGBColor(150, 150, 150)
+            
+            doc.add_paragraph()  # Add spacing between stories
+        
+        doc.add_page_break()  # New page for next chapter
+    
+    # ========== STATISTICS PAGE ==========
+    
+    stats_title = doc.add_heading('BIOGRAPHY STATISTICS', 1)
+    stats_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph()
+    
+    # Create a table for stats
+    table = doc.add_table(rows=1, cols=2)
+    table.style = 'Light Grid'
+    
+    # Header row
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = 'Metric'
+    hdr_cells[1].text = 'Value'
+    
+    # Data rows
+    metrics = [
+        ('Total Chapters', str(chapter_num)),
+        ('Total Stories', str(total_stories)),
+        ('Total Words', f"{total_words:,}"),
+        ('Average Story Length', f"{total_words//total_stories if total_stories > 0 else 0} words"),
+        ('Compiled Date', datetime.now().strftime('%B %d, %Y')),
+        ('Compiled Time', datetime.now().strftime('%I:%M %p'))
+    ]
+    
+    for metric, value in metrics:
+        row_cells = table.add_row().cells
+        row_cells[0].text = metric
+        row_cells[1].text = value
+    
+    doc.add_paragraph("\n\n")
+    
+    # Conclusion
+    conclusion_para = doc.add_paragraph()
+    conclusion_text = f"This biography contains {total_stories} personal stories from {author_name}'s life, "
+    conclusion_text += f"totaling {total_words:,} words across {chapter_num} chapters. "
+    conclusion_text += "These memories are now preserved for future generations to cherish."
+    conclusion_para.add_run(conclusion_text)
+    
+    doc.add_paragraph("\n")
+    
+    # Footer note
+    footer_para = doc.add_paragraph()
+    footer_run = footer_para.add_run("Created with Tell My Story Biographer")
+    footer_run.font.size = Pt(10)
+    footer_run.font.color.rgb = RGBColor(150, 150, 150)
+    footer_run.italic = True
+    footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # ========== SAVE TO BYTESIO ==========
+    
+    docx_bytes = BytesIO()
+    doc.save(docx_bytes)
+    docx_bytes.seek(0)
+    
+    return docx_bytes, author_name, chapter_num, total_stories, total_words
 
 def create_beautiful_biography(stories_data):
     """Create a professionally formatted biography with AI-inspired formatting"""
@@ -517,6 +810,35 @@ def create_html_biography(stories_data):
 st.markdown('<h1 class="main-title">📖 Beautiful Biography Creator</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Transform your life stories into a professionally formatted book</p>', unsafe_allow_html=True)
 
+# Format information card
+st.markdown("""
+<div class="format-card">
+    <h3>🎯 Available Export Formats</h3>
+    <div style="display: flex; justify-content: space-around; margin-top: 1rem;">
+        <div style="text-align: center;">
+            <div style="font-size: 2em;">📄</div>
+            <strong>TXT</strong>
+            <p style="font-size: 0.9em; color: #666;">Plain Text</p>
+        </div>
+        <div style="text-align: center;">
+            <div style="font-size: 2em;">🌐</div>
+            <strong>HTML</strong>
+            <p style="font-size: 0.9em; color: #666;">Web Format</p>
+        </div>
+        <div style="text-align: center;">
+            <div style="font-size: 2em;">📝</div>
+            <strong>MD</strong>
+            <p style="font-size: 0.9em; color: #666;">Markdown</p>
+        </div>
+        <div style="text-align: center;">
+            <div style="font-size: 2em;">📘</div>
+            <strong>DOCX</strong>
+            <p style="font-size: 0.9em; color: #666;">Microsoft Word</p>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # Try to get data from URL first
 stories_data = decode_stories_from_url()
 
@@ -565,6 +887,18 @@ if stories_data:
                 
                 # Create HTML version
                 html_bio, html_name = create_html_biography(stories_data)
+                
+                # Create DOCX version if available
+                docx_data = None
+                if DOCX_AVAILABLE:
+                    try:
+                        docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(stories_data)
+                        docx_data = docx_bytes
+                    except Exception as e:
+                        st.error(f"⚠️ Could not create DOCX: {str(e)}")
+                        docx_data = None
+                else:
+                    st.warning("⚠️ DOCX export not available. Install python-docx with: pip install python-docx==1.1.0")
             
             # Show celebration
             show_celebration()
@@ -594,43 +928,64 @@ if stories_data:
             # Download options
             st.subheader("📥 Download Your Biography")
             
-            col_dl1, col_dl2, col_dl3 = st.columns(3)
+            col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
+            
+            safe_name = author_name.replace(" ", "_")
             
             with col_dl1:
-                safe_name = author_name.replace(" ", "_")
                 st.download_button(
-                    label="📄 Download Text Version",
+                    label="📄 Download TXT",
                     data=bio_text,
                     file_name=f"{safe_name}_Biography.txt",
                     mime="text/plain",
                     use_container_width=True,
                     type="primary"
                 )
-                st.caption("Plain text format - compatible with all devices")
+                st.caption("Plain text - universal format")
             
             with col_dl2:
                 st.download_button(
-                    label="🌐 Download HTML Version",
+                    label="🌐 Download HTML",
                     data=html_bio,
                     file_name=f"{safe_name}_Biography.html",
                     mime="text/html",
                     use_container_width=True,
                     type="secondary"
                 )
-                st.caption("Beautiful web format - ready to print")
+                st.caption("Web format - ready to print")
             
             with col_dl3:
                 # Markdown version
                 md_bio = bio_text.replace("=" * 70, "#" * 3)
                 st.download_button(
-                    label="📝 Download Markdown",
+                    label="📝 Download MD",
                     data=md_bio,
                     file_name=f"{safe_name}_Biography.md",
                     mime="text/markdown",
                     use_container_width=True,
                     type="secondary"
                 )
-                st.caption("Markdown format for easy editing")
+                st.caption("Markdown - easy editing")
+            
+            with col_dl4:
+                # DOCX version
+                if docx_data:
+                    st.download_button(
+                        label="📘 Download DOCX",
+                        data=docx_data,
+                        file_name=f"{safe_name}_Biography.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        type="primary"
+                    )
+                    st.caption("Microsoft Word - professional")
+                else:
+                    st.button(
+                        "📘 DOCX (Unavailable)",
+                        disabled=True,
+                        use_container_width=True
+                    )
+                    st.caption("Install python-docx")
             
             # Story preview
             with st.expander("📋 Preview Your Stories", expanded=False):
@@ -666,6 +1021,7 @@ if stories_data:
                 <h3 style="color: white;">🎉 Biography Master! 🎉</h3>
                 <p>You've preserved {story_num} stories across {chapter_num} chapters</p>
                 <p>{total_words:,} words of your life story are now immortalized!</p>
+                <p><strong>Available in 4 formats: TXT, HTML, MD, DOCX</strong></p>
             </div>
             """, unsafe_allow_html=True)
     
@@ -712,26 +1068,63 @@ else:
                 st.success(f"✅ Loaded {story_count} stories")
                 
                 if st.button("Create Biography from File", type="primary", use_container_width=True):
+                    # Create all versions
                     bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(uploaded_data)
+                    html_bio, _ = create_html_biography(uploaded_data)
+                    
+                    # Try to create DOCX
+                    docx_data = None
+                    if DOCX_AVAILABLE:
+                        try:
+                            docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(uploaded_data)
+                            docx_data = docx_bytes
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not create DOCX: {str(e)}")
                     
                     safe_name = author_name.replace(" ", "_")
                     
-                    col_dl1, col_dl2 = st.columns(2)
-                    with col_dl1:
+                    # Show download buttons
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
                         st.download_button(
-                            label="📥 Download Text Version",
+                            label="📄 TXT",
                             data=bio_text,
                             file_name=f"{safe_name}_Biography.txt",
-                            mime="text/plain"
+                            mime="text/plain",
+                            use_container_width=True
                         )
-                    with col_dl2:
-                        html_bio, _ = create_html_biography(uploaded_data)
+                    
+                    with col2:
                         st.download_button(
-                            label="🌐 Download HTML Version",
+                            label="🌐 HTML",
                             data=html_bio,
                             file_name=f"{safe_name}_Biography.html",
-                            mime="text/html"
+                            mime="text/html",
+                            use_container_width=True
                         )
+                    
+                    with col3:
+                        md_bio = bio_text.replace("=" * 70, "#" * 3)
+                        st.download_button(
+                            label="📝 MD",
+                            data=md_bio,
+                            file_name=f"{safe_name}_Biography.md",
+                            mime="text/markdown",
+                            use_container_width=True
+                        )
+                    
+                    with col4:
+                        if docx_data:
+                            st.download_button(
+                                label="📘 DOCX",
+                                data=docx_data,
+                                file_name=f"{safe_name}_Biography.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True
+                            )
+                        else:
+                            st.button("📘 DOCX", disabled=True, use_container_width=True)
                     
                     show_celebration()
                     st.success(f"Biography created for {author_name}!")
@@ -740,7 +1133,36 @@ else:
                 st.error(f"❌ Error processing file: {str(e)}")
 
 # ============================================================================
+# DOCX FEATURES DESCRIPTION
+# ============================================================================
+st.markdown("---")
+if not DOCX_AVAILABLE:
+    st.warning("""
+    ⚠️ **Microsoft Word (.docx) Export Not Available**
+    
+    To enable DOCX export, install the required library:
+    
+    ```bash
+    pip install python-docx==1.1.0
+    ```
+    
+    Then restart your app to enjoy professional Word document formatting!
+    """)
+else:
+    st.success("""
+    ✅ **Microsoft Word (.docx) Export Available!**
+    
+    Your DOCX biography includes:
+    - Professional cover page with title and author name
+    - Table of contents
+    - Chapter headings and story formatting
+    - Statistics page with metrics
+    - Proper page breaks and formatting
+    - Compatible with Microsoft Word, Google Docs, and LibreOffice
+    """)
+
+# ============================================================================
 # FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • Professional formatting • Celebration effects included")
+st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • 4 Export Formats: TXT, HTML, MD, DOCX • Celebration effects included")
