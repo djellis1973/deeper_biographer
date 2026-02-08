@@ -224,13 +224,19 @@ def create_docx_biography(stories_data):
     normal_style.font.name = 'Calibri'
     normal_style.font.size = Pt(11)
     
-    # Quote style
-    quote_style = doc.styles.add_style('Quote', WD_STYLE_TYPE.PARAGRAPH)
-    quote_style.font.name = 'Calibri'
-    quote_style.font.size = Pt(11)
-    quote_style.font.italic = True
-    quote_style.paragraph_format.left_indent = Inches(0.5)
-    quote_style.paragraph_format.right_indent = Inches(0.5)
+    # Quote style - Only create if it doesn't already exist[citation:3]
+    try:
+        # First, try to access the style. This will work if it exists.
+        quote_style = doc.styles['Quote']
+    except KeyError:
+        # If a KeyError is raised, the style does not exist, so create it.
+        quote_style = doc.styles.add_style('Quote', WD_STYLE_TYPE.PARAGRAPH)
+        quote_style.font.name = 'Calibri'
+        quote_style.font.size = Pt(11)
+        quote_style.font.italic = True
+        quote_style.paragraph_format.left_indent = Inches(0.5)
+        quote_style.paragraph_format.right_indent = Inches(0.5)
+    # If it already existed, the existing 'quote_style' variable is used, and no changes are made to its properties.
     
     # ========== CREATE COVER PAGE ==========
     
