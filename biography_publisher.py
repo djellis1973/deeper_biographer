@@ -1,4 +1,4 @@
-# biography_publisher.py - FIXED VERSION WITH BALLOONS AND DOCX EXPORT
+# biography_publisher.py - FIXED VERSION WITH BALLOONS AND DOCX
 import streamlit as st
 import json
 import base64
@@ -7,7 +7,7 @@ import time
 from io import BytesIO
 
 # ============================================================================
-# IMPORT DOCX LIBRARY
+# DOCX LIBRARY IMPORT
 # ============================================================================
 try:
     from docx import Document
@@ -17,7 +17,7 @@ try:
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
-    st.warning("⚠️ python-docx not installed. DOCX export will not be available.")
+    st.warning("⚠️ python-docx not available. Please install with: pip install python-docx==1.1.0")
 
 # Page setup
 st.set_page_config(page_title="Biography Publisher", layout="wide")
@@ -78,14 +78,6 @@ st.markdown("""
         font-family: 'Courier New', monospace;
         font-size: 0.9em;
         line-height: 1.6;
-    }
-    .format-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
-        border-top: 4px solid #3498db;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -169,13 +161,10 @@ def decode_stories_from_url():
         st.error(f"Error loading data: {str(e)}")
         return None
 
-# ============================================================================
-# DOCX CREATION FUNCTIONS
-# ============================================================================
 def create_docx_biography(stories_data):
     """Create a professionally formatted Word document (.docx)"""
     if not DOCX_AVAILABLE:
-        raise Exception("python-docx library not available. Please install with: pip install python-docx")
+        raise Exception("python-docx library not available. Please install with: pip install python-docx==1.1.0")
     
     # Extract data
     user_name = stories_data.get("user", "Unknown")
@@ -223,14 +212,6 @@ def create_docx_biography(stories_data):
     normal_style = doc.styles['Normal']
     normal_style.font.name = 'Calibri'
     normal_style.font.size = Pt(11)
-    
-    # Quote style
-    quote_style = doc.styles.add_style('Quote', WD_STYLE_TYPE.PARAGRAPH)
-    quote_style.font.name = 'Calibri'
-    quote_style.font.size = Pt(11)
-    quote_style.font.italic = True
-    quote_style.paragraph_format.left_indent = Inches(0.5)
-    quote_style.paragraph_format.right_indent = Inches(0.5)
     
     # ========== CREATE COVER PAGE ==========
     
@@ -810,35 +791,6 @@ def create_html_biography(stories_data):
 st.markdown('<h1 class="main-title">📖 Beautiful Biography Creator</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Transform your life stories into a professionally formatted book</p>', unsafe_allow_html=True)
 
-# Format information card
-st.markdown("""
-<div class="format-card">
-    <h3>🎯 Available Export Formats</h3>
-    <div style="display: flex; justify-content: space-around; margin-top: 1rem;">
-        <div style="text-align: center;">
-            <div style="font-size: 2em;">📄</div>
-            <strong>TXT</strong>
-            <p style="font-size: 0.9em; color: #666;">Plain Text</p>
-        </div>
-        <div style="text-align: center;">
-            <div style="font-size: 2em;">🌐</div>
-            <strong>HTML</strong>
-            <p style="font-size: 0.9em; color: #666;">Web Format</p>
-        </div>
-        <div style="text-align: center;">
-            <div style="font-size: 2em;">📝</div>
-            <strong>MD</strong>
-            <p style="font-size: 0.9em; color: #666;">Markdown</p>
-        </div>
-        <div style="text-align: center;">
-            <div style="font-size: 2em;">📘</div>
-            <strong>DOCX</strong>
-            <p style="font-size: 0.9em; color: #666;">Microsoft Word</p>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
 # Try to get data from URL first
 stories_data = decode_stories_from_url()
 
@@ -941,7 +893,7 @@ if stories_data:
                     use_container_width=True,
                     type="primary"
                 )
-                st.caption("Plain text - universal format")
+                st.caption("Plain text format")
             
             with col_dl2:
                 st.download_button(
@@ -952,7 +904,7 @@ if stories_data:
                     use_container_width=True,
                     type="secondary"
                 )
-                st.caption("Web format - ready to print")
+                st.caption("Web format")
             
             with col_dl3:
                 # Markdown version
@@ -965,7 +917,7 @@ if stories_data:
                     use_container_width=True,
                     type="secondary"
                 )
-                st.caption("Markdown - easy editing")
+                st.caption("Markdown format")
             
             with col_dl4:
                 # DOCX version
@@ -978,7 +930,7 @@ if stories_data:
                         use_container_width=True,
                         type="primary"
                     )
-                    st.caption("Microsoft Word - professional")
+                    st.caption("Microsoft Word")
                 else:
                     st.button(
                         "📘 DOCX (Unavailable)",
@@ -1021,7 +973,6 @@ if stories_data:
                 <h3 style="color: white;">🎉 Biography Master! 🎉</h3>
                 <p>You've preserved {story_num} stories across {chapter_num} chapters</p>
                 <p>{total_words:,} words of your life story are now immortalized!</p>
-                <p><strong>Available in 4 formats: TXT, HTML, MD, DOCX</strong></p>
             </div>
             """, unsafe_allow_html=True)
     
@@ -1068,63 +1019,39 @@ else:
                 st.success(f"✅ Loaded {story_count} stories")
                 
                 if st.button("Create Biography from File", type="primary", use_container_width=True):
-                    # Create all versions
                     bio_text, all_stories, author_name, story_num, chapter_num, total_words = create_beautiful_biography(uploaded_data)
-                    html_bio, _ = create_html_biography(uploaded_data)
-                    
-                    # Try to create DOCX
-                    docx_data = None
-                    if DOCX_AVAILABLE:
-                        try:
-                            docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(uploaded_data)
-                            docx_data = docx_bytes
-                        except Exception as e:
-                            st.warning(f"⚠️ Could not create DOCX: {str(e)}")
                     
                     safe_name = author_name.replace(" ", "_")
                     
-                    # Show download buttons
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
                         st.download_button(
-                            label="📄 TXT",
+                            label="📥 Download Text Version",
                             data=bio_text,
                             file_name=f"{safe_name}_Biography.txt",
-                            mime="text/plain",
-                            use_container_width=True
+                            mime="text/plain"
                         )
-                    
-                    with col2:
+                    with col_dl2:
+                        html_bio, _ = create_html_biography(uploaded_data)
                         st.download_button(
-                            label="🌐 HTML",
+                            label="🌐 Download HTML Version",
                             data=html_bio,
                             file_name=f"{safe_name}_Biography.html",
-                            mime="text/html",
-                            use_container_width=True
+                            mime="text/html"
                         )
                     
-                    with col3:
-                        md_bio = bio_text.replace("=" * 70, "#" * 3)
-                        st.download_button(
-                            label="📝 MD",
-                            data=md_bio,
-                            file_name=f"{safe_name}_Biography.md",
-                            mime="text/markdown",
-                            use_container_width=True
-                        )
-                    
-                    with col4:
-                        if docx_data:
+                    # Add DOCX if available
+                    if DOCX_AVAILABLE:
+                        try:
+                            docx_bytes, docx_name, docx_chapters, docx_stories, docx_words = create_docx_biography(uploaded_data)
                             st.download_button(
-                                label="📘 DOCX",
-                                data=docx_data,
+                                label="📘 Download DOCX Version",
+                                data=docx_bytes,
                                 file_name=f"{safe_name}_Biography.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                use_container_width=True
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                             )
-                        else:
-                            st.button("📘 DOCX", disabled=True, use_container_width=True)
+                        except Exception as e:
+                            st.warning(f"Could not create DOCX: {str(e)}")
                     
                     show_celebration()
                     st.success(f"Biography created for {author_name}!")
@@ -1133,36 +1060,7 @@ else:
                 st.error(f"❌ Error processing file: {str(e)}")
 
 # ============================================================================
-# DOCX FEATURES DESCRIPTION
-# ============================================================================
-st.markdown("---")
-if not DOCX_AVAILABLE:
-    st.warning("""
-    ⚠️ **Microsoft Word (.docx) Export Not Available**
-    
-    To enable DOCX export, install the required library:
-    
-    ```bash
-    pip install python-docx==1.1.0
-    ```
-    
-    Then restart your app to enjoy professional Word document formatting!
-    """)
-else:
-    st.success("""
-    ✅ **Microsoft Word (.docx) Export Available!**
-    
-    Your DOCX biography includes:
-    - Professional cover page with title and author name
-    - Table of contents
-    - Chapter headings and story formatting
-    - Statistics page with metrics
-    - Proper page breaks and formatting
-    - Compatible with Microsoft Word, Google Docs, and LibreOffice
-    """)
-
-# ============================================================================
 # FOOTER
 # ============================================================================
 st.markdown("---")
-st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • 4 Export Formats: TXT, HTML, MD, DOCX • Celebration effects included")
+st.caption("✨ **Tell My Story Biography Publisher** • Create beautiful books from your life stories • Professional formatting • Celebration effects included • 4 Export Formats: TXT, HTML, MD, DOCX")
