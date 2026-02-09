@@ -1,12 +1,19 @@
-# biography_publisher.py - Fixed for new list format
+# biography_publisher.py
 import streamlit as st
 import json
 import base64
 from datetime import datetime
 import re
+from openai import OpenAI
 import os
 import random
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
+
+# Initialize OpenAI client
+client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
 
 # Page config
 st.set_page_config(
@@ -321,8 +328,135 @@ if st.session_state.stories_data:
                 st.success("Text formatted successfully!")
     
     with format_col2:
-        if st.button("📊 Generate PDF", type="primary", use_container_width=True):
-            st.warning("PDF generation requires reportlab library. Please install with: pip install reportlab")
+        if st.button("📊 Generate DOCX", type="primary", use_container_width=True):
+            with st.spinner("Creating Word document..."):
+                try:
+                    # Create a new Document
+                    doc = Document()
+                    
+                    # Set document properties
+                    doc.core_properties.author = st.session_state.author_name
+                    doc.core_properties.title = st.session_state.book_title
+                    doc.core_properties.subject = "Life Story Biography"
+                    
+                    # Add title page
+                    title_section = doc.sections[0]
+                    title_header = title_section.header
+                    title_para = title_header.paragraphs[0]
+                    title_para.text = st.session_state.book_title
+                    
+                    title_paragraph = doc.add_heading(st.session_state.book_title, 0)
+                    title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    
+                    author_paragraph = doc.add_paragraph(f"by {st.session_state.author_name}")
+                    author_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    
+                    date_paragraph = doc.add_paragraph(f"Generated on {datetime.now().strftime('%B %d, %Y')}")
+                    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    
+                    doc.add_page_break()
+                    
+                    # Add Table of Contents
+                    if st.session_state.include_toc:
+                        toc_heading = doc.add_heading("Table of Contents", 1)
+                        toc_heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        
+                        if isinstance(stories, list):
+                            current_session = None
+                            for i, story in enumerate(stories, 1):
+                                session_id = story.get("session_id", "1")
+                                if session_id != current_session:
+                                    session_title = story.get("session_title", f"Session {session_id}")
+                                    session_para = doc.add_paragraph(session_title)
+                                    session_para.style = "Heading 2"
+                                    current_session = session_id
+                                question = story.get("question", f"Story {i}")
+                                toc_para = doc.add_paragraph(f"{i}. {question}")
+                                toc_para.style = "List Bullet"
+                        else:
+                            for session_id, session_data in stories.items():
+                                session_title = session_data.get("title", f"Session {session_id}")
+                                session_para = doc.add_paragraph(session_title)
+                                session_para.style = "Heading 2"
+                                
+                                questions = session_data.get("questions", {})
+                                for j, (question, _) in enumerate(questions.items(), 1):
+                                    toc_para = doc.add_paragraph(f"{j}. {question}")
+                                    toc_para.style = "List Bullet"
+                        
+                        doc.add_page_break()
+                    
+                    # Add content
+                    if isinstance(stories, list):
+                        current_session = None
+                        for i, story in enumerate(stories, 1):
+                            session_id = story.get("session_id", "1")
+                            if session_id != current_session:
+                                session_title = story.get("session_title", f"Session {session_id}")
+                                session_heading = doc.add_heading(session_title, 1)
+                                session_heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                current_session = session_id
+                            
+                            question = story.get("question", f"Memory {i}")
+                            answer = story.get("answer", "")
+                            
+                            if st.session_state.selected_format == "interview":
+                                question_para = doc.add_paragraph(f"Q: {question}")
+                                question_para.style = "Heading 3"
+                                answer_para = doc.add_paragraph(f"A: {answer}")
+                            elif st.session_state.selected_format == "biography":
+                                answer_para = doc.add_paragraph(answer)
+                            else:  # memoir
+                                chapter_heading = doc.add_heading(f"Chapter {i}: {question}", 2)
+                                answer_para = doc.add_paragraph(answer)
+                            
+                            doc.add_paragraph()  # Add spacing
+                    else:
+                        for session_id, session_data in stories.items():
+                            session_title = session_data.get("title", f"Session {session_id}")
+                            session_heading = doc.add_heading(session_title, 1)
+                            session_heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            
+                            questions = session_data.get("questions", {})
+                            for i, (question, answers) in enumerate(questions.items(), 1):
+                                if isinstance(answers, list) and answers:
+                                    answer_text = answers[0].get("answer", "") if isinstance(answers[0], dict) else str(answers[0])
+                                else:
+                                    answer_text = str(answers)
+                                
+                                if st.session_state.selected_format == "interview":
+                                    question_para = doc.add_paragraph(f"Q: {question}")
+                                    question_para.style = "Heading 3"
+                                    answer_para = doc.add_paragraph(f"A: {answer_text}")
+                                elif st.session_state.selected_format == "biography":
+                                    answer_para = doc.add_paragraph(answer_text)
+                                else:  # memoir
+                                    chapter_heading = doc.add_heading(f"Chapter {i}: {question}", 2)
+                                    answer_para = doc.add_paragraph(answer_text)
+                                
+                                doc.add_paragraph()  # Add spacing
+                    
+                    # Save to bytes
+                    docx_bytes = io.BytesIO()
+                    doc.save(docx_bytes)
+                    docx_bytes.seek(0)
+                    
+                    # Generate filename
+                    filename = f"{st.session_state.book_title.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.docx"
+                    
+                    # Download button
+                    st.download_button(
+                        label="📥 Download DOCX",
+                        data=docx_bytes,
+                        file_name=filename,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True
+                    )
+                    
+                    st.success("✅ DOCX document generated successfully!")
+                    
+                except Exception as e:
+                    st.error(f"Error generating DOCX: {str(e)}")
     
     with format_col3:
         if st.button("📧 Share Link", type="secondary", use_container_width=True):
@@ -370,7 +504,7 @@ else:
         ### Features:
         
         • Multiple format styles  
-        • Professional PDF generation  
+        • Professional DOCX generation  
         • Customizable book details  
         • Table of contents  
         • Shareable links
@@ -391,12 +525,67 @@ else:
         
         ### Export Options:
         
-        • Download as PDF  
+        • Download as DOCX  
         • Download as text  
         • Shareable URL  
         • Customizable styling
         """)
 
+# AI Enhancement Section
+st.markdown("---")
+st.subheader("🤖 AI Enhancement")
+
+if st.session_state.stories_data and st.session_state.formatted_text:
+    enhancement_type = st.selectbox(
+        "Select enhancement type:",
+        ["Improve Writing Style", "Add Historical Context", "Create Summary", "Add Chapter Titles"]
+    )
+    
+    if st.button("Enhance with AI", type="primary"):
+        with st.spinner("Enhancing with AI..."):
+            try:
+                prompt = f"""
+                You are a professional editor enhancing a biography.
+                
+                Enhancement type: {enhancement_type}
+                
+                Original text:
+                {st.session_state.formatted_text[:2000]}...
+                
+                Please provide {enhancement_type.lower()} for this biography.
+                """
+                
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are a professional biographer and editor."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=1000
+                )
+                
+                enhanced_text = response.choices[0].message.content
+                
+                with st.expander("Enhanced Version", expanded=True):
+                    st.write(enhanced_text)
+                    
+                    # Download enhanced version
+                    enhanced_filename = f"{st.session_state.book_title.replace(' ', '_')}_enhanced.txt"
+                    st.download_button(
+                        label="📥 Download Enhanced Version",
+                        data=enhanced_text,
+                        file_name=enhanced_filename,
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                
+                st.success("✅ Enhancement complete!")
+                
+            except Exception as e:
+                st.error(f"Error during AI enhancement: {str(e)}")
+else:
+    st.info("👤 Load some stories first to use AI enhancement")
+
 # Footer
 st.markdown("---")
-st.caption(f"Biography Publisher • {datetime.now().year} • Data format: List format compatible")
+st.caption(f"Biography Publisher • {datetime.now().year} • Loaded stories from: {user_id if st.session_state.stories_data else 'None'}")
